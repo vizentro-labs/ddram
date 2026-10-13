@@ -75,6 +75,41 @@ half the time. With more I/O workers the plan already leads on this VM
 reads are issued by the workers rather than by faulting compute threads.
 Both ddram modes are 1.7–2.1× faster than the kernel.
 
+**Learned plans** are measured with unmodified llama.cpp in
+[llama-cpp.md](llama-cpp.md); the results are in the section below.
+
+### llama.cpp, unmodified, through the shim
+
+`bench/llama/run.sh`: llama.cpp (build 45451c3, CPU, 4 threads, `--no-repack`
+so the weights are used in place from the mapping) generating 64 tokens from a
+21-token prompt with a TinyLlama-1.1B-architecture Q4_K_M model (636 MiB,
+random weights, see [llama-cpp.md](llama-cpp.md)), under a cgroup v1 memory
+limit of 224 MiB: a 160 MiB weight budget (4× oversubscribed) plus 64 MiB for
+llama.cpp's own 23 MiB of buffers. Three rounds, interleaved. Raw output in
+[`bench/llama/results-linux-virtio-tinyllama-q4km-160M.txt`](../bench/llama/results-linux-virtio-tinyllama-q4km-160M.txt).
+
+| Variant | decode tokens/s (round 1 / 2 / 3) | median | prompt tokens/s (median) |
+|---|---:|---:|---:|
+| llama.cpp default (`mmap` + `MADV_WILLNEED`, kernel page cache) | 1.72 / 1.76 / 1.73 | 1.73 | 39 |
+| **ddram shim, no plan** (cyclic policy, stream readahead) | 3.97 / 4.58 / 4.62 | **4.58** | 74 |
+| ddram shim, learning the plan during the run | 3.38 / 3.75 / 4.06 | 3.75 | 75 |
+| ddram shim, saved plan loaded before the first token | 3.43 / 4.19 / 3.70 | 3.70 | 79 |
+
+In RAM the same binary decodes at 33 tokens/s, so every variant is
+I/O-bound. Unmodified llama.cpp runs **2.1–2.6× faster** on ddram than on
+its own `mmap` loading under the same memory limit. The learned plan is
+proven mechanically (learned after about 1,700 faults, saved, reloaded on
+the next run, no faults outside it) but does **not** beat the cyclic
+heuristic on this workload; it is 5–20% behind. Two reasons, both
+measurable in the traces: a decode step is a dense sweep in file order,
+where the cyclic policy is already within a few percent of optimal (see the
+dense decode result above), and the recorded order is the interleaving of
+four compute threads inside each tensor, so the learned plan has 140 ranges
+for 580 blocks and a less regular prefetch sequence than the stream
+detector sees. The plan API's gains are on non-sequential patterns; for
+llama.cpp the win is the shim itself. Smoothing recorded plans (sorting
+within a window) is the obvious next step and is listed in the roadmap.
+
 ## v0.1 results
 
 ## Setup

@@ -1,0 +1,79 @@
+# model=/tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf size=667814496 budget=160M slack=64M ntok=64 threads=4
+>>> kernel-mmap
+0.38.132.195 I common_perf_print:        load time =     795.94 ms
+0.38.132.255 I common_perf_print: prompt eval time =     568.97 ms /    21 tokens (   27.09 ms per token,    36.91 tokens per second)
+0.38.132.307 I common_perf_print:        eval time =   36577.93 ms /    63 runs   (  580.60 ms per token,     1.72 tokens per second)
+RESULT kernel-mmap   580.60 ms per token,     1.72 tokens per second
+>>> ddram-no-plan
+0.16.779.955 I common_perf_print:        load time =     419.75 ms
+0.16.779.957 I common_perf_print: prompt eval time =     342.01 ms /    21 tokens (   16.29 ms per token,    61.40 tokens per second)
+0.16.779.958 I common_perf_print:        eval time =   15888.06 ms /    63 runs   (  252.19 ms per token,     3.97 tokens per second)
+RESULT ddram-no-plan   252.19 ms per token,     3.97 tokens per second
+>>> ddram-learn-plan
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: recording the first pass (637 blocks)
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: serving 0.67 GB from a 0.17 GB RAM budget, 1024 KiB blocks
+ddram-shim: learned a plan of 140 ranges covering 0.58 GB after 1688 faults
+ddram-shim: saved the plan to /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf.ddram-plan
+0.19.331.981 I common_perf_print:        load time =     340.77 ms
+0.19.331.982 I common_perf_print: prompt eval time =     285.62 ms /    21 tokens (   13.60 ms per token,    73.52 tokens per second)
+0.19.331.984 I common_perf_print:        eval time =   18614.37 ms /    63 runs   (  295.47 ms per token,     3.38 tokens per second)
+RESULT ddram-learn-plan   295.47 ms per token,     3.38 tokens per second
+>>> ddram-saved-plan
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: loaded plan from /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf.ddram-plan (140 ranges)
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: serving 0.67 GB from a 0.17 GB RAM budget, 1024 KiB blocks
+0.19.205.911 I common_perf_print:        load time =     461.19 ms
+0.19.205.913 I common_perf_print: prompt eval time =     270.10 ms /    21 tokens (   12.86 ms per token,    77.75 tokens per second)
+0.19.205.914 I common_perf_print:        eval time =   18380.14 ms /    63 runs   (  291.75 ms per token,     3.43 tokens per second)
+RESULT ddram-saved-plan   291.75 ms per token,     3.43 tokens per second
+>>> kernel-mmap
+0.37.196.663 I common_perf_print:        load time =     761.79 ms
+0.37.196.681 I common_perf_print: prompt eval time =     503.59 ms /    21 tokens (   23.98 ms per token,    41.70 tokens per second)
+0.37.196.683 I common_perf_print:        eval time =   35772.19 ms /    63 runs   (  567.81 ms per token,     1.76 tokens per second)
+RESULT kernel-mmap   567.81 ms per token,     1.76 tokens per second
+>>> ddram-no-plan
+0.14.606.692 I common_perf_print:        load time =     488.19 ms
+0.14.606.731 I common_perf_print: prompt eval time =     261.38 ms /    21 tokens (   12.45 ms per token,    80.34 tokens per second)
+0.14.606.771 I common_perf_print:        eval time =   13755.79 ms /    63 runs   (  218.35 ms per token,     4.58 tokens per second)
+RESULT ddram-no-plan   218.35 ms per token,     4.58 tokens per second
+>>> ddram-learn-plan
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: recording the first pass (637 blocks)
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: serving 0.67 GB from a 0.17 GB RAM budget, 1024 KiB blocks
+ Write a short story about a lighthouse keeper who finds a message in a bottle.ddram-shim: learned a plan of 140 ranges covering 0.58 GB after 1774 faults
+ddram-shim: saved the plan to /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf.ddram-plan
+0.17.474.742 I common_perf_print:        load time =     300.98 ms
+0.17.474.760 I common_perf_print: prompt eval time =     272.96 ms /    21 tokens (   13.00 ms per token,    76.93 tokens per second)
+0.17.474.769 I common_perf_print:        eval time =   16795.65 ms /    63 runs   (  266.60 ms per token,     3.75 tokens per second)
+RESULT ddram-learn-plan   266.60 ms per token,     3.75 tokens per second
+>>> ddram-saved-plan
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: loaded plan from /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf.ddram-plan (140 ranges)
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: serving 0.67 GB from a 0.17 GB RAM budget, 1024 KiB blocks
+0.15.758.434 I common_perf_print:        load time =     354.05 ms
+0.15.758.463 I common_perf_print: prompt eval time =     264.66 ms /    21 tokens (   12.60 ms per token,    79.35 tokens per second)
+0.15.758.525 I common_perf_print:        eval time =   15040.26 ms /    63 runs   (  238.73 ms per token,     4.19 tokens per second)
+RESULT ddram-saved-plan   238.73 ms per token,     4.19 tokens per second
+>>> kernel-mmap
+0.37.886.776 I common_perf_print:        load time =     677.30 ms
+0.37.886.829 I common_perf_print: prompt eval time =     571.53 ms /    21 tokens (   27.22 ms per token,    36.74 tokens per second)
+0.37.886.875 I common_perf_print:        eval time =   36478.75 ms /    63 runs   (  579.03 ms per token,     1.73 tokens per second)
+RESULT kernel-mmap   579.03 ms per token,     1.73 tokens per second
+>>> ddram-no-plan
+0.14.583.916 I common_perf_print:        load time =     484.22 ms
+0.14.583.917 I common_perf_print: prompt eval time =     342.01 ms /    21 tokens (   16.29 ms per token,    61.40 tokens per second)
+0.14.583.919 I common_perf_print:        eval time =   13649.96 ms /    63 runs   (  216.67 ms per token,     4.62 tokens per second)
+RESULT ddram-no-plan   216.67 ms per token,     4.62 tokens per second
+>>> ddram-learn-plan
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: recording the first pass (637 blocks)
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: serving 0.67 GB from a 0.17 GB RAM budget, 1024 KiB blocks
+ddram-shim: learned a plan of 142 ranges covering 0.58 GB after 1649 faults
+ddram-shim: saved the plan to /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf.ddram-plan
+0.16.227.712 I common_perf_print:        load time =     349.85 ms
+0.16.227.767 I common_perf_print: prompt eval time =     279.58 ms /    21 tokens (   13.31 ms per token,    75.11 tokens per second)
+0.16.227.816 I common_perf_print:        eval time =   15500.96 ms /    63 runs   (  246.05 ms per token,     4.06 tokens per second)
+RESULT ddram-learn-plan   246.05 ms per token,     4.06 tokens per second
+>>> ddram-saved-plan
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: loaded plan from /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf.ddram-plan (142 ranges)
+ddram-shim: /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/models/tinyllama-1.1b-q4_k_m.gguf: serving 0.67 GB from a 0.17 GB RAM budget, 1024 KiB blocks
+0.17.698.361 I common_perf_print:        load time =     341.07 ms
+0.17.698.393 I common_perf_print: prompt eval time =     250.80 ms /    21 tokens (   11.94 ms per token,    83.73 tokens per second)
+0.17.698.433 I common_perf_print:        eval time =   17011.72 ms /    63 runs   (  270.03 ms per token,     3.70 tokens per second)
+RESULT ddram-saved-plan   270.03 ms per token,     3.70 tokens per second

@@ -100,6 +100,7 @@ verified, same cgroup memory limit for every engine, 4x oversubscription.
 | Non-sequential chunk sweeps, 4 threads | **5.5 GB/s**, 6.5 GB read per pass | 1.5 GB/s, 23 GB per pass | 1.5 GB/s, 8.5 GB per pass | 0.19 GB/s |
 | Dense decode, 8.6 GB weights | **0.66–0.73 tok/s** | 0.62–0.64 tok/s | 0.14 tok/s | — |
 | MoE decode, 8 experts, 2 active | 1.4–1.5 tok/s, **6.3 GB** read | 1.7 tok/s, 12.1 GB read | 0.8 tok/s, 7.1 GB read | — |
+| llama.cpp, unmodified (shim), 636 MiB Q4_K_M in 160 MiB | 3.7 tok/s learned plan, **4.6** without | — | 1.7 tok/s (its own `mmap`) | — |
 
 What was proven: on predictable but non-sequential access the plan is 3.7×
 faster than both ddram's own heuristics and the kernel, at the Belady
@@ -107,8 +108,11 @@ minimum of I/O; on the dense decode loop it matches or slightly beats the
 hand-tuned cyclic policy; on MoE it halves the I/O but, on this VM's
 host-cached virtual disk, the redundant reads of the heuristic version are
 nearly free, so the time advantage needs real NVMe (or more I/O workers) to
-show. Learned plans (recorded, saved, reloaded) are exercised by the
-llama.cpp shim in the follow-up change.
+show. Unmodified llama.cpp runs 2.1–2.6× faster through the shim than on
+its own `mmap`; the learned plan is proven to work (learned, saved,
+reloaded) but lands at parity-or-below the cyclic heuristic on this dense
+pattern, so plan *learning* needs smoothing of multi-threaded traces before
+it pays off there.
 
 What still needs real hardware: NVMe without a host cache (the MoE time
 advantage, absolute bandwidth), GPU upload paths (unchanged by this work),
