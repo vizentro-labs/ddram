@@ -15,6 +15,11 @@ diffusion models, training data.
 * **Transparent and explicit modes.** Hand existing code a plain pointer
   (faults are served from the SSD), or use `pin`/`read_at`/`write_at`/
   `prefetch`/`advise` when the access pattern is known.
+* **Plan-driven paging.** Declare the order in which the region will be
+  touched (`Region::set_plan`: a list of ranges, optionally cyclic) and the
+  pager prefetches exactly what comes next and evicts by Belady's optimal
+  rule instead of guessing from the past. LLM layer order, MoE expert
+  routing and asset streaming paths are all plans. See the benchmarks.
 * **Hard RAM bound.** Data is held only in a fixed frame arena; direct I/O
   (`O_DIRECT` / `F_NOCACHE` / `FILE_FLAG_NO_BUFFERING`) bypasses the OS page
   cache.
@@ -51,6 +56,11 @@ region.advise(0, region.len(), Advice::Cyclic);     // repeated sweeps (LLM weig
 region.prefetch(next_layer_off, layer_len);         // overlap I/O with compute
 let pin = region.pin(block);                         // resident until dropped
 upload_to_gpu(region.arena().0, pin.arena_offset()); // DMA from the pinned arena
+
+// Planned: declare the access order and let the pager page optimally.
+let mut plan = ddram::Plan::cyclic();                // repeats every token
+for l in 0..layers { plan.push(layer_off(l), layer_len); }
+region.set_plan(&plan)?;                             // exact prefetch, Belady eviction
 ```
 
 Map an existing file (model weights, asset pack) read-only:
@@ -80,8 +90,10 @@ See [examples/c](examples/c). Build the static or shared library with
 ```text
 ddram smart  /mnt/nvme                 # NVMe health of the drive behind a path
 ddram budget /mnt/nvme --share 0.25    # endurance budget -> governor rate
-ddram bench  --engine ddram|mmap|swap --workload cyclic|random|zipf|zipf-write \
-             --size 8G --budget 2G --dir /mnt/nvme --cgroup
+ddram bench  --engine ddram|mmap|swap --workload cyclic|chunks|random|zipf|zipf-write \
+             --size 8G --budget 2G --dir /mnt/nvme --cgroup [--plan]
+ddram llm    --engine ddram|mmap --model-size 8G --budget 2G [--plan] \
+             [--experts 8 --active 2]     # dense or mixture-of-experts decode
 ```
 
 ## Benchmarks

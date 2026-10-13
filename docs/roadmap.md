@@ -11,11 +11,17 @@
 - [x] Background reclaimer (free-frame pool), coalesced write-back
 - [x] Health-driven limits: `Region::apply_health` (endurance share, thermal back-off, unsafe-drive clamp)
 
+## v0.2
+- [x] Plan-driven paging: `Plan` / `Region::set_plan`, Belady-optimal eviction
+      and exact prefetch along a declared access order (Rust + C API)
+- [x] `ddram llm` mixture-of-experts workload, `ddram bench --workload chunks`
+- [ ] Learned plans: record a run's access order and reuse it on the next run
+- [ ] `LD_PRELOAD` shim: unmodified llama.cpp (and any mmap-based loader)
+      served from a region with a learned plan
+
 ## Next
 - [ ] **GPU validation**: CUDA (`cudaHostRegister` on the arena), Metal
       (`newBufferWithBytesNoCopy`), DirectStorage destination; publish numbers
-- [ ] Real LLM demo: llama.cpp-style weight streaming via an `LD_PRELOAD` /
-      `mmap` shim for unmodified inference engines
 - [ ] Linux userfaultfd engine (4 KiB granularity without per-block VMAs;
       `UFFDIO_MOVE`, `WP_ASYNC` + `PAGEMAP_SCAN` on 6.7+)
 - [ ] io_uring / Windows IoRing backends for deeper queues with fewer threads

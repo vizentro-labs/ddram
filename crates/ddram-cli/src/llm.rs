@@ -5,18 +5,32 @@
 //!
 //! Each "token" runs a matrix-vector product through every layer, which means
 //! reading every weight once per token, as batch-1 transformer decoding does.
-//! The model file is mapped read-only either through ddram (with the cyclic
-//! policy and per-layer prefetch) or through the kernel (`mmap` +
-//! `MADV_SEQUENTIAL`/`MADV_WILLNEED`, i.e. what llama.cpp does by default), under
-//! the same memory limit. Outputs carry a checksum so both engines are proven
-//! to compute identical results.
+//! With `--experts N --active K` each layer holds N expert matrices of which
+//! K are used per token (mixture-of-experts), chosen by a deterministic,
+//! skewed router so every engine computes the same thing.
+//!
+//! The model file is mapped read-only through ddram or through the kernel
+//! (`mmap` + `MADV_SEQUENTIAL`/`MADV_WILLNEED`, i.e. what llama.cpp does by
+//! default), under the same memory limit. Outputs carry a checksum so all
+//! engines are proven to compute identical results.
+//!
+//! Engines:
+//! * `ddram`: cyclic policy plus `WillNeed` hints one layer ahead (v0.1
+//!   behaviour).
+//! * `ddram` with `--plan`: an access plan. Dense models declare one cyclic
+//!   plan over the layers; MoE models declare each token's expert sequence
+//!   when the token starts (what a pre-gating router provides). The pager
+//!   then prefetches exactly that and evicts by Belady's rule.
+//! * `mmap`: the kernel page cache with `MADV_WILLNEED` on the same ranges
+//!   the ddram engine hints, one layer ahead.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use ddram::{Advice, Config, Policy, Region};
+use ddram::{Advice, Config, Plan, Policy, Region};
 
+use crate::bench::{disk_for, disk_stats};
 use crate::{parse_size, Args};
 
 const D: usize = 4096; // hidden size
@@ -54,7 +68,7 @@ fn gen_model(path: &Path, bytes: u64) {
     f.get_ref().sync_all().unwrap();
 }
 
-/// y = W x for a [rows x D] row-major block, split across threads.
+/// y += W x for a [rows x D] row-major block, split across threads.
 fn matvec(w: &[f32], x: &[f32], y: &mut [f32], threads: usize) {
     let rows = y.len();
     let per = rows.div_ceil(threads);
@@ -71,11 +85,61 @@ fn matvec(w: &[f32], x: &[f32], y: &mut [f32], threads: usize) {
                             acc[i] += a[i] * b[i];
                         }
                     }
-                    *out = acc.iter().sum();
+                    *out += acc.iter().sum::<f32>();
                 }
             });
         }
     });
+}
+
+/// Deterministic skewed router: expert `e` is drawn with probability
+/// proportional to 1/(e+1)^skew; `active` distinct experts per (token, layer).
+struct Router {
+    cdf: Vec<f64>,
+    active: usize,
+}
+
+impl Router {
+    fn new(experts: usize, active: usize, skew: f64) -> Router {
+        let w: Vec<f64> = (0..experts)
+            .map(|e| 1.0 / ((e + 1) as f64).powf(skew))
+            .collect();
+        let total: f64 = w.iter().sum();
+        let mut acc = 0.0;
+        let cdf = w
+            .iter()
+            .map(|v| {
+                acc += v / total;
+                acc
+            })
+            .collect();
+        Router {
+            cdf,
+            active: active.min(experts),
+        }
+    }
+
+    fn pick(&self, token: usize, layer: usize) -> Vec<usize> {
+        let mut x = (token as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ (layer as u64 + 7).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+        let mut out = Vec::with_capacity(self.active);
+        while out.len() < self.active {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let u = (x >> 11) as f64 / (1u64 << 53) as f64;
+            let e = self
+                .cdf
+                .iter()
+                .position(|&c| u < c)
+                .unwrap_or(self.cdf.len() - 1);
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+        out.sort_unstable();
+        out
+    }
 }
 
 pub fn run(a: &Args) {
@@ -84,16 +148,26 @@ pub fn run(a: &Args) {
     let layers: usize = a.get_or("layers", "32").parse().unwrap();
     let tokens: usize = a.get_or("tokens", "4").parse().unwrap();
     let threads: usize = a.get_or("threads", "4").parse().unwrap();
+    let experts: usize = a.get_or("experts", "1").parse().unwrap();
+    let active: usize = a.get_or("active", "1").parse().unwrap();
+    let skew: f64 = a.get_or("expert-skew", "1.0").parse().unwrap();
+    let use_plan = a.get("plan").is_some();
     let dir = PathBuf::from(a.get_or("dir", "."));
     let engine = a.get_or("engine", "ddram").to_string();
     let block = parse_size(a.get_or("block", "1M")) as usize;
+    let dev = disk_for(&dir);
 
-    let layer_rows = (size as usize / 4 / layers / D) & !7;
-    let layer_floats = layer_rows * D;
-    let model_bytes = (layer_floats * layers * 4) as u64;
+    // Rows per expert matrix: a multiple of 8 so the block holds whole rows.
+    let expert_rows = (size as usize / 4 / layers / experts / D) & !7;
+    let expert_floats = expert_rows * D;
+    let expert_bytes = expert_floats * 4;
+    let layer_bytes = expert_bytes * experts;
+    let model_bytes = (layer_bytes * layers) as u64;
     let path = dir.join(format!("ddram-llm-{model_bytes}.weights"));
     gen_model(&path, model_bytes);
     let _ = std::fs::write("/proc/sys/vm/drop_caches", "3");
+    let router = Router::new(experts, active, skew);
+    let expert_off = |l: usize, e: usize| l * layer_bytes + e * expert_bytes;
 
     let _cg = if a.get("cgroup").is_some() {
         Some(crate::bench::enter_cgroup(
@@ -107,10 +181,22 @@ pub fn run(a: &Args) {
     let region = (engine == "ddram").then(|| {
         let mut c = Config::read_only_file(&path, budget);
         c.block_size = block;
-        c.policy = Policy::Cyclic;
+        c.policy = if use_plan {
+            Policy::Clock
+        } else {
+            Policy::Cyclic
+        };
         c.prefetch_depth = 32;
         Region::new(c).expect("region")
     });
+    if let (Some(r), true, 1) = (&region, use_plan, experts) {
+        // Dense: one cyclic plan over the layers, declared once.
+        let mut plan = Plan::cyclic();
+        for l in 0..layers {
+            plan.push(expert_off(l, 0) as u64, layer_bytes as u64);
+        }
+        r.set_plan(&plan).expect("plan");
+    }
     #[cfg(unix)]
     let mapping: Option<(*mut libc::c_void, usize)> = (engine == "mmap").then(|| unsafe {
         use std::os::unix::io::AsRawFd;
@@ -136,37 +222,73 @@ pub fn run(a: &Args) {
         _ => panic!("unknown engine {engine}"),
     };
 
+    let mode = if use_plan { "plan" } else { "hints" };
     println!(
-        "# llm engine={engine} model={:.2} GB layers={layers} rows/layer={layer_rows} hidden={D} budget={:.2} GB threads={threads}",
+        "# llm engine={engine} mode={mode} model={:.2} GB layers={layers} experts={experts} active={active} skew={skew} rows/expert={expert_rows} hidden={D} budget={:.2} GB threads={threads}",
         model_bytes as f64 / 1e9,
         budget as f64 / 1e9
     );
 
-    let mut x = vec![1.0f32 / D as f32; D];
-    let mut y = vec![0f32; layer_rows];
-    let t_all = Instant::now();
-    let mut checksum = 0f64;
-    for tok in 0..tokens {
-        let t = Instant::now();
-        for l in 0..layers {
-            let off = l * layer_floats;
-            // Hint the next layer so I/O overlaps this layer's compute.
-            let next = ((l + 1) % layers) * layer_floats * 4;
+    // Hint a set of expert ranges (one layer ahead) on the baseline engines.
+    let hint = |ranges: &[(usize, usize)]| {
+        for &(off, len) in ranges {
             match (&region, engine.as_str()) {
-                (Some(r), _) => r.advise(next, layer_floats * 4, Advice::WillNeed),
+                (Some(r), _) => r.advise(off, len, Advice::WillNeed),
                 #[cfg(unix)]
                 (None, "mmap") => unsafe {
                     let (p, _) = mapping.unwrap();
-                    libc::madvise(
-                        (p as *mut u8).add(next).cast(),
-                        layer_floats * 4,
-                        libc::MADV_WILLNEED,
-                    );
+                    libc::madvise((p as *mut u8).add(off).cast(), len, libc::MADV_WILLNEED);
                 },
                 _ => {}
             }
-            let w = unsafe { std::slice::from_raw_parts(base.add(off), layer_floats) };
-            matvec(w, &x, &mut y, threads);
+        }
+    };
+
+    let mut x = vec![1.0f32 / D as f32; D];
+    let mut y = vec![0f32; expert_rows];
+    let t_all = Instant::now();
+    let mut checksum = 0f64;
+    let mut steady = 0f64;
+    let d0 = disk_stats(&dev);
+    let mut read0 = region.as_ref().map_or(0, |r| r.stats().bytes_read);
+    for tok in 0..tokens {
+        let t = Instant::now();
+        // The token's expert sequence (what a pre-gating router knows).
+        let picks: Vec<Vec<usize>> = (0..layers).map(|l| router.pick(tok, l)).collect();
+        let ranges = |l: usize| -> Vec<(usize, usize)> {
+            picks[l]
+                .iter()
+                .map(|&e| (expert_off(l, e), expert_bytes))
+                .collect()
+        };
+        if let (Some(r), true, true) = (&region, use_plan, experts > 1) {
+            let mut plan = Plan::new();
+            for l in 0..layers {
+                for (off, len) in ranges(l) {
+                    plan.push(off as u64, len as u64);
+                }
+            }
+            r.set_plan(&plan).expect("plan");
+        }
+        for l in 0..layers {
+            if !use_plan {
+                // Hint the next layer so I/O overlaps this layer's compute.
+                let next = if l + 1 < layers {
+                    ranges(l + 1)
+                } else {
+                    // Next token: hint its first layer (dense: same every token).
+                    (0..1)
+                        .flat_map(|_| router.pick(tok + 1, 0))
+                        .map(|e| (expert_off(0, e), expert_bytes))
+                        .collect()
+                };
+                hint(&next);
+            }
+            y.iter_mut().for_each(|v| *v = 0.0);
+            for (off, _) in ranges(l) {
+                let w = unsafe { std::slice::from_raw_parts(base.add(off / 4), expert_floats) };
+                matvec(w, &x, &mut y, threads);
+            }
             // Fold rows back to the hidden size and normalize.
             let mut nx = vec![0f32; D];
             for (i, v) in y.iter().enumerate() {
@@ -179,27 +301,53 @@ pub fn run(a: &Args) {
         }
         let tok_sum: f64 = x.iter().map(|&v| v as f64).sum();
         checksum += tok_sum;
+        let el = t.elapsed().as_secs_f64();
+        if tok > 0 {
+            steady += el;
+        }
+        let touched = (layers * active * expert_bytes) as f64;
+        let extra = region
+            .as_ref()
+            .map(|r| {
+                let s = r.stats();
+                let gb = (s.bytes_read - read0) as f64 / 1e9;
+                read0 = s.bytes_read;
+                format!(
+                    "  read={gb:.2} GB hard={} soft={}",
+                    s.hard_faults, s.soft_faults
+                )
+            })
+            .unwrap_or_default();
         println!(
-            "token {tok}: {:.2} s ({:.2} GB/s of weights)  out={tok_sum:.6}",
-            t.elapsed().as_secs_f64(),
-            model_bytes as f64 / t.elapsed().as_secs_f64() / 1e9
+            "token {tok}: {el:.2} s ({:.2} GB/s of weights){extra}  out={tok_sum:.6}",
+            touched / el / 1e9
         );
     }
     let el = t_all.elapsed().as_secs_f64();
+    let d1 = disk_stats(&dev);
+    let steady_tps = if tokens > 1 {
+        (tokens - 1) as f64 / steady
+    } else {
+        tokens as f64 / el
+    };
     let extra = region
         .as_ref()
         .map(|r| {
             let s = r.stats();
             format!(
-                " ddram_read_gb={:.2} cyclic={}",
+                " ddram_read_gb={:.2} hard_faults={} plan_hits={} plan_misses={} cyclic={}",
                 s.bytes_read as f64 / 1e9,
+                s.hard_faults,
+                s.plan_hits,
+                s.plan_misses,
                 s.cyclic
             )
         })
         .unwrap_or_default();
     println!(
-        "RESULT llm engine={engine} tokens_per_s={:.3} secs={el:.2} checksum={checksum:.6}{extra}",
-        tokens as f64 / el
+        "RESULT llm engine={engine} mode={mode} experts={experts} active={active} tokens_per_s={:.3} steady_tokens_per_s={steady_tps:.3} secs={el:.2} disk_read_gb={:.2} checksum={checksum:.6}{extra}",
+        tokens as f64 / el,
+        (d1.read - d0.read) as f64 / 1e9
     );
     #[cfg(unix)]
     if let Some((p, len)) = mapping {

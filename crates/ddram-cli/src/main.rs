@@ -73,9 +73,11 @@ impl Args {
 fn usage() -> ! {
     eprintln!(
         "usage:\n  ddram smart  [PATH|DEVICE]\n  ddram budget [PATH|DEVICE] [--rated-tbw TB] [--years 5] [--share 0.25]\n  \
-         ddram bench  --engine ddram|mmap|swap --workload fill|cyclic|random|zipf|zipf-write\n               \
-         [--size 8G] [--budget 2G] [--dir .] [--block 1M] [--passes 3] [--ops 200000] [--threads 1] [--cgroup]\n  \
-         ddram llm    --engine ddram|mmap [--model-size 8G] [--budget 2G] [--layers 32] [--tokens 4] [--dir .] [--cgroup]"
+         ddram bench  --engine ddram|mmap|swap --workload fill|cyclic|chunks|random|zipf|zipf-write\n               \
+         [--size 8G] [--budget 2G] [--dir .] [--block 1M] [--passes 3] [--ops 200000] [--threads 1] [--cgroup]\n               \
+         [--plan] [--chunk 4M] [--policy auto|clock|cyclic]\n  \
+         ddram llm    --engine ddram|mmap [--model-size 8G] [--budget 2G] [--layers 32] [--tokens 4] [--dir .] [--cgroup]\n               \
+         [--plan] [--experts 1] [--active 1] [--expert-skew 1.0] [--threads 4] [--block 1M]"
     );
     std::process::exit(2)
 }

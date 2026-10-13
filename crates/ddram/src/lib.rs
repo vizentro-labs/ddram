@@ -19,6 +19,11 @@
 //!   blocks live in the arena, which can be registered once with a GPU API
 //!   (CUDA host registration / cuFile, Metal no-copy buffers, DirectStorage)
 //!   so uploads are DMA from a fixed staging area. See [`Region::arena`].
+//! * **Planned**: [`Region::set_plan`] installs a [`Plan`], the order in which
+//!   the application will touch the region (a list of ranges, optionally
+//!   cyclic). The pager then prefetches exactly what comes next and evicts by
+//!   Belady's optimal rule instead of guessing from past accesses. See
+//!   [`plan`].
 //!
 //! NAND is not DRAM: a 4 KiB read costs ~50-100 µs vs ~0.1 µs. ddram hides
 //! that with large blocks, parallel readahead and a scan-resistant policy, and
@@ -29,6 +34,7 @@ pub mod backing;
 pub mod ffi;
 pub mod governor;
 mod pager;
+pub mod plan;
 pub mod smart;
 mod sys;
 
@@ -40,6 +46,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 pub use pager::Policy;
+pub use plan::Plan;
 
 use backing::Backing;
 use governor::WriteGovernor;
@@ -177,6 +184,13 @@ pub struct Stats {
     /// the background reclaimer's free pool was empty.
     pub direct_reclaims: u64,
     pub cyclic: bool,
+    /// Whether an access plan is installed.
+    pub plan_active: bool,
+    /// Faults on blocks the plan covers / does not cover.
+    pub plan_hits: u64,
+    pub plan_misses: u64,
+    /// Ranges of the plan consumed so far (cumulative over cycles).
+    pub plan_position: u64,
 }
 
 /// A tiered memory region.
@@ -433,6 +447,52 @@ impl Region {
         }
     }
 
+    /// Install an access plan: the order in which the application will touch
+    /// the region. From now on the pager prefetches along the plan and evicts
+    /// the block whose next planned use is furthest away (Belady's optimal
+    /// policy). Heuristic readahead and the cyclic policy are off while a
+    /// plan is installed; explicit `prefetch`/`advise` still work. Replaces
+    /// any previous plan; safe to call while other threads access the region.
+    pub fn set_plan(&self, plan: &Plan) -> io::Result<()> {
+        self.inner.set_plan(Some(plan))
+    }
+
+    /// Remove the access plan and return to the configured [`Policy`].
+    pub fn clear_plan(&self) {
+        let _ = self.inner.set_plan(None);
+    }
+
+    /// Start recording the order in which blocks are faulted in (the first
+    /// touch of every block that is not mapped), keeping up to
+    /// `max_entries`. Recording costs one atomic store per fault. Use
+    /// [`Region::recorded_plan`] to turn the trace into a [`Plan`], which can
+    /// be installed with [`Region::set_plan`] and saved for the next run.
+    pub fn record(&self, max_entries: usize) {
+        self.inner.set_recorder(Some(max_entries));
+    }
+
+    /// Stop recording and return the trace (block indices in fault order).
+    pub fn stop_recording(&self) -> Vec<u64> {
+        self.inner.set_recorder(None).unwrap_or_default()
+    }
+
+    /// The trace recorded so far and whether the buffer is full, without
+    /// stopping; `None` if not recording.
+    pub fn recorded(&self) -> Option<(Vec<u64>, bool)> {
+        self.inner.recorded()
+    }
+
+    /// The recorded trace as a plan: one pass over everything recorded so
+    /// far (see [`Plan::from_trace`]). `None` if not recording or nothing
+    /// was recorded.
+    pub fn recorded_plan(&self, cyclic: bool) -> Option<Plan> {
+        let (blocks, _) = self.inner.recorded()?;
+        if blocks.is_empty() {
+            return None;
+        }
+        Some(Plan::from_trace(&blocks, self.inner.bs as u64, cyclic))
+    }
+
     /// Write back all dirty blocks and sync the backing file.
     pub fn flush(&self) -> io::Result<()> {
         for b in 0..self.inner.nblocks {
@@ -482,6 +542,7 @@ impl Region {
 
     pub fn stats(&self) -> Stats {
         let c = &self.inner.stats;
+        let ps = self.inner.plan_stats();
         Stats {
             hard_faults: c.hard_faults.load(Relaxed),
             soft_faults: c.soft_faults.load(Relaxed),
@@ -497,6 +558,10 @@ impl Region {
             throttled_ns: self.inner.governor.throttled_ns.load(Relaxed),
             direct_reclaims: c.direct_reclaims.load(Relaxed),
             cyclic: self.inner.is_cyclic(),
+            plan_active: ps.is_some(),
+            plan_hits: ps.map_or(0, |p| p.0),
+            plan_misses: ps.map_or(0, |p| p.1),
+            plan_position: ps.map_or(0, |p| p.2),
         }
     }
 
@@ -528,7 +593,8 @@ fn prefetch_worker(inner: Arc<Inner>) {
 fn reclaim_worker(inner: Arc<Inner>) {
     let mut idle = 0u32;
     while !inner.shutdown.load(Relaxed) {
-        if inner.reclaim_to_watermark() {
+        let planned = inner.plan_tick();
+        if inner.reclaim_to_watermark() || planned {
             idle = 0;
         } else {
             idle = (idle + 1).min(6);

@@ -33,6 +33,7 @@ use crossbeam_queue::ArrayQueue;
 
 use crate::backing::Backing;
 use crate::governor::WriteGovernor;
+use crate::plan::{Plan, PlanState, Recorder};
 use crate::sys;
 
 // State word layout.
@@ -78,6 +79,9 @@ struct Frame {
     hot: AtomicBool,
     /// Loaded by sequential readahead (eligible for write-back clustering).
     seq: AtomicBool,
+    /// Loaded ahead of use and not yet touched (counts against the plan's
+    /// look-ahead window).
+    pending: AtomicBool,
 }
 
 #[derive(Default)]
@@ -155,6 +159,13 @@ pub(crate) struct Inner {
     sticky_quota: usize,
     pub read_only: bool,
     pub shutdown: AtomicBool,
+    /// Installed access plan (null when none). Replaced by `set_plan`;
+    /// readers hold `plan_users` while dereferencing it.
+    plan: AtomicPtr<PlanState>,
+    plan_users: AtomicUsize,
+    /// Access recorder (null when not recording), same protocol as `plan`.
+    recorder: AtomicPtr<Recorder>,
+    rec_users: AtomicUsize,
 }
 
 unsafe impl Send for Inner {}
@@ -204,6 +215,7 @@ impl Inner {
                 sticky: AtomicBool::new(false),
                 hot: AtomicBool::new(false),
                 seq: AtomicBool::new(false),
+                pending: AtomicBool::new(false),
             })
             .collect();
         let fill = if p.existing_data { u64::MAX } else { 0 };
@@ -257,6 +269,10 @@ impl Inner {
             sticky_count: AtomicUsize::new(0),
             sticky_quota: p.nframes.saturating_sub(window),
             shutdown: AtomicBool::new(false),
+            plan: AtomicPtr::new(ptr::null_mut()),
+            plan_users: AtomicUsize::new(0),
+            recorder: AtomicPtr::new(ptr::null_mut()),
+            rec_users: AtomicUsize::new(0),
         })
     }
 
@@ -274,6 +290,99 @@ impl Inner {
     }
     pub fn is_cyclic(&self) -> bool {
         self.cyclic.load(Relaxed)
+    }
+
+    /// Run `f` on the installed plan, if any. Safe against concurrent
+    /// `set_plan`: the user count is raised before the pointer is loaded,
+    /// and the replacer waits for it to drop to zero before freeing.
+    #[inline]
+    pub fn with_plan<R>(&self, f: impl FnOnce(&PlanState) -> R) -> Option<R> {
+        self.plan_users.fetch_add(1, SeqCst);
+        let p = self.plan.load(SeqCst);
+        let r = if p.is_null() {
+            None
+        } else {
+            Some(f(unsafe { &*p }))
+        };
+        self.plan_users.fetch_sub(1, SeqCst);
+        r
+    }
+
+    pub fn has_plan(&self) -> bool {
+        !self.plan.load(Relaxed).is_null()
+    }
+
+    /// Install (or with `None` remove) an access plan. Turns the cyclic
+    /// policy off: with a plan, eviction follows the plan instead.
+    pub fn set_plan(&self, plan: Option<&Plan>) -> std::io::Result<()> {
+        let new = match plan {
+            Some(p) => Box::into_raw(Box::new(PlanState::build(
+                p,
+                self.bs,
+                self.nblocks,
+                self.nframes,
+            )?)),
+            None => ptr::null_mut(),
+        };
+        if !new.is_null() {
+            self.cyclic.store(false, Relaxed);
+        }
+        let old = self.plan.swap(new, SeqCst);
+        while self.plan_users.load(SeqCst) != 0 {
+            sys::yield_now();
+        }
+        if !old.is_null() {
+            drop(unsafe { Box::from_raw(old) });
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn with_recorder<R>(&self, f: impl FnOnce(&Recorder) -> R) -> Option<R> {
+        self.rec_users.fetch_add(1, SeqCst);
+        let p = self.recorder.load(SeqCst);
+        let r = if p.is_null() {
+            None
+        } else {
+            Some(f(unsafe { &*p }))
+        };
+        self.rec_users.fetch_sub(1, SeqCst);
+        r
+    }
+
+    /// Start (`Some(cap)`) or stop (`None`) recording the fault order.
+    /// Returns what the previous recorder had captured.
+    pub fn set_recorder(&self, cap: Option<usize>) -> Option<Vec<u64>> {
+        let new = match cap {
+            Some(c) => Box::into_raw(Box::new(Recorder::new(c))),
+            None => ptr::null_mut(),
+        };
+        let old = self.recorder.swap(new, SeqCst);
+        while self.rec_users.load(SeqCst) != 0 {
+            sys::yield_now();
+        }
+        if old.is_null() {
+            None
+        } else {
+            let old = unsafe { Box::from_raw(old) };
+            Some(old.blocks())
+        }
+    }
+
+    /// (entries so far, buffer full) of the recorder, if recording.
+    pub fn recorded(&self) -> Option<(Vec<u64>, bool)> {
+        self.with_recorder(|r| (r.blocks(), r.is_full()))
+    }
+
+    /// (hits, misses, position) of the installed plan.
+    pub fn plan_stats(&self) -> Option<(u64, u64, u64)> {
+        self.with_plan(|p| {
+            (
+                p.hits.load(Relaxed),
+                p.misses.load(Relaxed),
+                p.cursor.load(Relaxed) as u64,
+            )
+        })
     }
 
     fn on_disk(&self, b: usize) -> bool {
@@ -349,6 +458,7 @@ impl Inner {
                             }
                             let w = !self.read_only && (is_dirty(s) || write == Some(true));
                             self.frames[f].referenced.store(true, Relaxed);
+                            self.frames[f].pending.store(false, Relaxed);
                             if let Err(e) = unsafe {
                                 sys::map_frame(
                                     &self.arena,
@@ -469,6 +579,9 @@ impl Inner {
     /// Run CLOCK to pick a victim, evict it, and return its frame `CLAIMED`.
     /// With `for_pool`, frames that are already free are skipped.
     fn reclaim_one(&self, for_pool: bool) -> Option<usize> {
+        if let Some(Some(f)) = self.with_plan(|p| self.reclaim_opt(p, for_pool)) {
+            return Some(f);
+        }
         let n = self.nframes;
         let prefer_clean = self.governor.is_constrained();
         let cyclic = self.cyclic.load(Relaxed);
@@ -539,6 +652,179 @@ impl Inner {
             }
         }
         Some(f)
+    }
+
+    /// Belady's rule: evict the resident blocks whose next planned use is
+    /// furthest away. One scan selects up to `OPT_BATCH` victims; the first
+    /// is returned `CLAIMED` and the rest go to the free pool, which
+    /// amortizes the scan. Returns `None` when nothing outside the plan's
+    /// in-use window is evictable (the caller then falls back to CLOCK).
+    fn reclaim_opt(&self, p: &PlanState, for_pool: bool) -> Option<usize> {
+        const OPT_BATCH: usize = 32;
+        // Victims per scan: what the pool is short of, or a few for a direct
+        // reclaim, so the pool never holds a large share of the budget.
+        let want = if for_pool {
+            self.free_high.saturating_sub(self.free.len())
+        } else {
+            4
+        }
+        .clamp(1, OPT_BATCH);
+        // (key, frame), sorted by descending key.
+        let mut best = [(0usize, 0usize); OPT_BATCH];
+        let mut nbest = 0;
+        self.lock();
+        for f in 0..self.nframes {
+            let fr = &self.frames[f];
+            let ob = fr.block.load(Acquire);
+            if ob == FREE {
+                if !for_pool
+                    && fr
+                        .block
+                        .compare_exchange(FREE, CLAIMED, AcqRel, Relaxed)
+                        .is_ok()
+                {
+                    self.unlock();
+                    return Some(f);
+                }
+                continue;
+            }
+            // Pinned, hot, and loaded-ahead-but-untouched frames stay.
+            if ob == CLAIMED
+                || fr.pins.load(SeqCst) > 0
+                || fr.hot.load(Relaxed)
+                || fr.pending.load(Relaxed)
+            {
+                continue;
+            }
+            let key = p.victim_key(ob as usize, fr.referenced.load(Relaxed));
+            if key == 0 || (nbest == want && key <= best[want - 1].0) {
+                continue;
+            }
+            // Insertion into the sorted batch.
+            let mut i = nbest.min(want - 1);
+            while i > 0 && best[i - 1].0 < key {
+                best[i] = best[i - 1];
+                i -= 1;
+            }
+            best[i] = (key, f);
+            if nbest < want {
+                nbest += 1;
+            }
+        }
+        let mut claimed = [(0usize, 0usize, 0u64); OPT_BATCH];
+        let mut n = 0;
+        for &(_, f) in &best[..nbest] {
+            let fr = &self.frames[f];
+            let ob = fr.block.load(Acquire);
+            if ob >= CLAIMED || fr.pins.load(SeqCst) > 0 {
+                continue;
+            }
+            let st = &self.states[ob as usize];
+            let s = st.load(Acquire);
+            if tag(s) != RESIDENT || frame_of(s) != f {
+                continue;
+            }
+            let ev = mk(EVICTING, f, is_dirty(s), is_mapped(s));
+            if st.compare_exchange(s, ev, SeqCst, Relaxed).is_err() {
+                continue;
+            }
+            if fr.pins.load(SeqCst) > 0 {
+                st.store(s, Release);
+                continue;
+            }
+            fr.block.store(CLAIMED, Relaxed);
+            if fr.sticky.swap(false, Relaxed) {
+                self.sticky_count.fetch_sub(1, Relaxed);
+            }
+            fr.hot.store(false, Relaxed);
+            claimed[n] = (f, ob as usize, s);
+            n += 1;
+        }
+        self.unlock();
+        if n == 0 {
+            return None;
+        }
+        for (i, &(f, ob, s)) in claimed[..n].iter().enumerate() {
+            self.evict(ob, f, s);
+            if i > 0 {
+                let fr = &self.frames[f];
+                fr.referenced.store(false, Relaxed);
+                fr.pending.store(false, Relaxed);
+                fr.block.store(FREE, Release);
+                let _ = self.free.push(f);
+            }
+        }
+        Some(claimed[0].0)
+    }
+
+    /// Background step of an installed plan (run by the reclaim thread):
+    /// retire ranges the cursor has left behind, and keep the look-ahead
+    /// window ahead of the cursor queued for prefetch. Returns whether
+    /// anything was done.
+    pub fn plan_tick(&self) -> bool {
+        self.with_plan(|p| {
+            let n = p.nsteps();
+            let nr = p.nranges();
+            let cur = p.cursor.load(Relaxed);
+            let pos_abs = p.abs_start(cur);
+            let mut work = false;
+            // 1. Retire ranges behind the cursor: point their blocks at
+            //    their next occurrence.
+            let mut applied = p.applied.load(Relaxed);
+            if cur > applied + nr {
+                applied = cur - nr; // lapped: older passes are stale anyway
+            }
+            while applied < cur {
+                let r = applied % nr;
+                for s in p.range_start[r]..p.range_start[r + 1] {
+                    let b = p.steps[s as usize] as usize;
+                    let _ =
+                        p.next_use[b].compare_exchange(s, p.next_occ[s as usize], Relaxed, Relaxed);
+                }
+                applied += 1;
+                work = true;
+            }
+            p.applied.store(applied, Relaxed);
+            // 2. Prefetch: walk forward from the current range and queue
+            //    absent blocks until `lookahead` blocks are in the window
+            //    (absent, in flight, or loaded ahead and not yet touched).
+            //    Blocks that are resident for other reasons cost nothing.
+            let mut issued = p.issued.load(Relaxed).max(pos_abs);
+            let cap = if p.cyclic {
+                pos_abs + (n / 2).max(1)
+            } else {
+                n
+            };
+            let walk_end = cap.min(pos_abs + (4 * p.lookahead).max(self.nframes));
+            let mut window = 0;
+            let mut s = pos_abs;
+            while s < walk_end && window < p.lookahead {
+                let b = p.steps[s % n] as usize;
+                let st = self.states[b].load(Relaxed);
+                match tag(st) {
+                    EMPTY => {
+                        if s >= issued {
+                            if self.queue.push(b as u64).is_err() {
+                                break;
+                            }
+                            issued = s + 1;
+                            work = true;
+                        }
+                        window += 1;
+                    }
+                    RESIDENT => {
+                        if self.frames[frame_of(st)].pending.load(Relaxed) {
+                            window += 1;
+                        }
+                    }
+                    _ => window += 1,
+                }
+                s += 1;
+            }
+            p.issued.store(issued, Relaxed);
+            work
+        })
+        .unwrap_or(false)
     }
 
     /// Evict dirty block `b` together with the following dirty blocks that
@@ -648,6 +934,7 @@ impl Inner {
                 Some(f) => {
                     let fr = &self.frames[f];
                     fr.referenced.store(false, Relaxed);
+                    fr.pending.store(false, Relaxed);
                     fr.block.store(FREE, Release);
                     let _ = self.free.push(f);
                 }
@@ -681,8 +968,15 @@ impl Inner {
         self.stats.bytes_written.fetch_add(self.bs as u64, Relaxed);
     }
 
-    /// Sequential-stream detection and readahead.
+    /// Plan position tracking, or sequential-stream detection and readahead
+    /// when no plan is installed.
     fn note_access(&self, b: usize) {
+        if !self.recorder.load(Relaxed).is_null() {
+            self.with_recorder(|r| r.push(b));
+        }
+        if self.with_plan(|p| p.access(b)).is_some() {
+            return;
+        }
         let depth = self.depth.load(Relaxed) as u64;
         let b64 = b as u64;
         let mut slot = None;
@@ -785,16 +1079,29 @@ impl Inner {
             let f = self.load(b, false, false, false);
             self.frames[f].referenced.store(true, Relaxed);
             self.frames[f].seq.store(true, Relaxed);
+            self.frames[f].pending.store(true, Relaxed);
             return;
         }
-        // Never read further ahead than asked for.
-        let max = self.max_run.min(self.depth.load(Relaxed).max(1));
+        // Never read further ahead than asked for. With a plan, coalesce
+        // only blocks the plan needs soon; otherwise the readahead depth.
+        let planned = self.has_plan();
+        let max = if planned {
+            self.max_run
+        } else {
+            self.max_run.min(self.depth.load(Relaxed).max(1))
+        };
         let mut blocks = [0usize; MAX_RUN];
         let mut n = 1;
         blocks[0] = b;
         while n < max {
             let nb = b + n;
-            if nb >= self.nblocks || !self.on_disk(nb) || !claim(nb) {
+            if nb >= self.nblocks || !self.on_disk(nb) {
+                break;
+            }
+            if planned && self.with_plan(|p| p.soon(nb)) != Some(true) {
+                break;
+            }
+            if !claim(nb) {
                 break;
             }
             blocks[n] = nb;
@@ -826,6 +1133,7 @@ impl Inner {
             // before the stream reaches them.
             self.publish(blocks[i], frames[i], false, false, false, true);
             self.frames[frames[i]].seq.store(true, Relaxed);
+            self.frames[frames[i]].pending.store(true, Relaxed);
         }
     }
 
@@ -844,6 +1152,7 @@ impl Inner {
                     let s2 = st.load(SeqCst);
                     if matches!(tag(s2), RESIDENT | BUSY) && frame_of(s2) == f {
                         fr.referenced.store(true, Relaxed);
+                        fr.pending.store(false, Relaxed);
                         if dirty {
                             self.mark_dirty(b);
                         }
@@ -994,6 +1303,14 @@ impl Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        let p = self.plan.swap(ptr::null_mut(), SeqCst);
+        if !p.is_null() {
+            drop(unsafe { Box::from_raw(p) });
+        }
+        let r = self.recorder.swap(ptr::null_mut(), SeqCst);
+        if !r.is_null() {
+            drop(unsafe { Box::from_raw(r) });
+        }
         // Windows placeholders can only be released once their views are
         // unmapped; on Unix this is redundant with the final munmap.
         for b in 0..self.nblocks {

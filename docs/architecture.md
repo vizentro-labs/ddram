@@ -23,6 +23,7 @@ and AI datasets. See `research/ssd-requirements.md` §4.
    │ Region (lib.rs)                                          │
    │   transparent view: reserved VA range, one slot/block    │
    │   explicit API: Pin / PinMut guards, Advice, Stats       │
+   │   planned API: Plan (ranges, cyclic) → set_plan          │
    ├─────────────────────────────────────────────────────────┤
    │ Pager (pager.rs)                                         │
    │   per-block AtomicU64 state  ─ EMPTY/LOADING/RESIDENT/   │
@@ -31,6 +32,8 @@ and AI datasets. See `research/ssd-requirements.md` §4.
    │   frame table + CLOCK hand (spinlock, never held over I/O)│
    │   cyclic (scan-resistant) policy, sticky frames           │
    │   stream detector → readahead queue → I/O workers         │
+   │   plan (plan.rs): cursor, next-use table, Belady victims, │
+   │                   prefetch frontier → the same queue       │
    ├──────────────┬──────────────────┬───────────────────────┤
    │ sys (OS)     │ Backing (file)   │ WriteGovernor          │
    │ arena, map,  │ O_DIRECT /       │ token bucket on        │
@@ -120,6 +123,56 @@ cannot trigger CPU page faults either, so GPU paths use pin/prefetch.
   (every token reads every layer's weights) and for full-scene asset passes.
 * **Hot / Cold advice** pins frames as sticky or evicts them on request,
   for example to keep embeddings, KV-cache heads or UI textures resident.
+* **Planned (Belady).** With a [`Plan`](#access-plans) installed, the victim
+  is the resident block whose next planned use is furthest away. This is
+  Belady's optimal policy, which no policy that only looks at the past can
+  match. Blocks the plan never touches again are evicted first.
+
+## Access plans
+
+Many large workloads know their future: a decoding language model reads
+every layer in the same order for every token, a mixture-of-experts router
+chooses the experts of the next layer before they are needed, a game streams
+assets along a known path, an out-of-core solver sweeps its matrices in a
+fixed order. `Region::set_plan` lets the application say so: a `Plan` is an
+ordered list of byte ranges, optionally cyclic. From then on:
+
+* **Position tracking costs O(1) per fault.** Every block carries the step of
+  its next planned use (`next_use`). A fault on a block whose next use lies
+  ahead of the current range moves the cursor there (forward only, and at
+  most half a cycle for cyclic plans, so a thread that lags behind the
+  frontier does not drag it back). Resident, mapped blocks fault no more
+  than before, so a plan adds nothing to the hot path.
+* **The prefetch frontier** is maintained by the reclaim thread: it walks
+  the plan from the current range and queues absent blocks until
+  `lookahead` blocks are in the window (absent, in flight, or loaded ahead
+  and not yet touched). Blocks that are resident for other reasons cost
+  nothing, so after a cyclic plan's stable prefix the frontier is already
+  waiting at the first streamed block. The I/O workers coalesce queued
+  blocks into vectored reads of up to 2 MiB, but only across blocks the
+  plan needs soon, so nothing outside the plan is read. The heuristic
+  stream detector and the automatic policy switch are off while a plan is
+  installed; explicit `prefetch`/`advise` still work.
+* **Retirement.** When the cursor leaves a range, its blocks are pointed at
+  their next occurrence (or marked as never needed again for a linear
+  plan). The current range is never evicted, so several threads may consume
+  one range concurrently, and blocks loaded ahead but not yet touched are
+  protected too.
+* **Eviction** selects victims by the next-use distance. The background
+  reclaimer takes a batch of victims per scan; a fault that must reclaim
+  directly runs the same scan without allocating (it is `O(frames)`, so
+  plans are meant for the block sizes recommended below, not for 4 KiB
+  paging).
+* **Replacement is safe under load.** The plan lives behind an atomic
+  pointer with a user count; `set_plan` swaps the pointer and waits for
+  in-flight faults before freeing the old plan.
+
+Ranges should be the units the application consumes together (a layer, an
+expert, an asset). Ranges larger than a quarter of the budget are split into
+pieces of an eighth, so a single huge cyclic range behaves like the cyclic
+policy. For a cyclic sweep larger than RAM the plan keeps a stable prefix
+and streams the rest, like the cyclic policy; for anything non-sequential it
+reads each block exactly once per use and never guesses.
 
 ## Readahead and I/O
 
@@ -161,7 +214,8 @@ mechanisms keep it low:
 * `ddram-reclaim`: kswapd-style reclaimer. It keeps a free-frame pool
   between low and high watermarks (about 1.5–3% of frames), so faults
   usually skip eviction. A fault only evicts directly when the pool is
-  empty.
+  empty. With a plan installed it also runs the plan step (retire passed
+  ranges, extend the prefetch frontier) on every iteration.
 
 ## Choosing a block size
 

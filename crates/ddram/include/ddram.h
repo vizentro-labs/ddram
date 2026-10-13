@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 typedef struct ddram_region ddram_region;
+typedef struct ddram_plan ddram_plan;
 
 /* Zero fields take defaults. */
 typedef struct ddram_options {
@@ -37,6 +38,7 @@ typedef struct ddram_stats {
     uint64_t loads, prefetch_loads;
     uint64_t bytes_read, bytes_written;
     uint64_t evictions, writebacks, resident_blocks;
+    uint64_t plan_hits, plan_misses, plan_position;
 } ddram_stats;
 
 enum ddram_advice {
@@ -74,6 +76,29 @@ void ddram_unpin(const ddram_region *r, uint64_t block);
 
 int ddram_flush(const ddram_region *r);
 void ddram_stats_get(const ddram_region *r, ddram_stats *out);
+
+/* Access plans: declare the order in which the region will be touched (a
+ * list of byte ranges, optionally repeating). With a plan installed the pager
+ * prefetches exactly what comes next and evicts the block whose next planned
+ * use is furthest away (Belady's optimal policy). Ranges should be the units
+ * consumed together (a layer, an expert, an asset). */
+ddram_plan *ddram_plan_new(int cyclic);
+void ddram_plan_free(ddram_plan *p);
+void ddram_plan_add(ddram_plan *p, uint64_t off, uint64_t len);
+void ddram_plan_set_lookahead(ddram_plan *p, uint64_t bytes); /* 0 = budget/4 */
+uint64_t ddram_plan_len(const ddram_plan *p);
+int ddram_plan_save(const ddram_plan *p, const char *path);
+ddram_plan *ddram_plan_load(const char *path);
+/* The region copies the plan; free it afterwards if no longer needed. */
+int ddram_set_plan(const ddram_region *r, const ddram_plan *p);
+void ddram_clear_plan(const ddram_region *r);
+
+/* Learned plans: record the order in which blocks are faulted in, then turn
+ * the trace into a plan (one pass over everything recorded) to install now
+ * and save for the next run. */
+void ddram_record(const ddram_region *r, uint64_t max_entries);
+void ddram_stop_recording(const ddram_region *r);
+ddram_plan *ddram_recorded_plan(const ddram_region *r, int cyclic); /* NULL if none */
 
 #ifdef __cplusplus
 }
