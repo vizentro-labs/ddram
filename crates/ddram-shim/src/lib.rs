@@ -36,7 +36,7 @@
 #![cfg(target_os = "linux")]
 
 use std::cell::Cell;
-use std::ffi::{c_int, c_void, CStr};
+use std::ffi::{c_int, c_void};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
 use std::sync::{Mutex, OnceLock};
@@ -44,7 +44,8 @@ use std::time::Duration;
 
 use ddram::{Config, Plan, Policy, Region};
 
-type MmapFn = unsafe extern "C" fn(*mut c_void, usize, c_int, c_int, c_int, libc::off_t) -> *mut c_void;
+type MmapFn =
+    unsafe extern "C" fn(*mut c_void, usize, c_int, c_int, c_int, libc::off_t) -> *mut c_void;
 type MunmapFn = unsafe extern "C" fn(*mut c_void, usize) -> c_int;
 type MadviseFn = unsafe extern "C" fn(*mut c_void, usize, c_int) -> c_int;
 
@@ -107,8 +108,12 @@ fn settings() -> Option<&'static Settings> {
         let budget = env("DDRAM_BUDGET").and_then(|v| parse_size(&v))? as usize;
         Some(Settings {
             budget,
-            min_size: env("DDRAM_MIN_SIZE").and_then(|v| parse_size(&v)).unwrap_or(64 << 20),
-            block: env("DDRAM_BLOCK").and_then(|v| parse_size(&v)).unwrap_or(1 << 20) as usize,
+            min_size: env("DDRAM_MIN_SIZE")
+                .and_then(|v| parse_size(&v))
+                .unwrap_or(64 << 20),
+            block: env("DDRAM_BLOCK")
+                .and_then(|v| parse_size(&v))
+                .unwrap_or(1 << 20) as usize,
             matcher: env("DDRAM_MATCH"),
             plan: env("DDRAM_PLAN").and_then(|v| v.parse().ok()).unwrap_or(1),
             plan_file: env("DDRAM_PLAN_FILE"),
@@ -149,7 +154,13 @@ fn fd_path(fd: c_int) -> Option<PathBuf> {
 }
 
 /// Decide whether to serve this mapping, and build the region if so.
-unsafe fn try_serve(len: usize, prot: c_int, flags: c_int, fd: c_int, off: libc::off_t) -> Option<*mut c_void> {
+unsafe fn try_serve(
+    len: usize,
+    prot: c_int,
+    flags: c_int,
+    fd: c_int,
+    off: libc::off_t,
+) -> Option<*mut c_void> {
     let s = settings()?;
     if fd < 0
         || off != 0
@@ -191,9 +202,14 @@ unsafe fn try_serve(len: usize, prot: c_int, flags: c_int, fd: c_int, off: libc:
     let mut planned = false;
     if let Some(f) = &plan_file {
         if let Ok(p) = Plan::load(f) {
-            if p.total_bytes() <= region.len() as u64 && region.set_plan(&p).is_ok() {
+            if region.set_plan(&p).is_ok() {
                 planned = true;
-                log!(s, "{ps}: loaded plan from {} ({} ranges)", f.display(), p.len());
+                log!(
+                    s,
+                    "{ps}: loaded plan from {} ({} ranges)",
+                    f.display(),
+                    p.len()
+                );
             }
         }
     }
@@ -240,20 +256,10 @@ fn monitor() {
             let Some((trace, full)) = m.region.recorded() else {
                 continue;
             };
-            let blocks = m.region.len() / m.region.block_size();
-            // The first pass is complete when (nearly) every block has been
-            // seen; a model's blocks are all read once per token. Fall back
-            // to whatever was captured if the buffer fills up first.
-            let mut seen = vec![false; blocks];
-            let mut distinct = 0;
-            for &b in &trace {
-                if !seen[b as usize] {
-                    seen[b as usize] = true;
-                    distinct += 1;
-                }
-            }
-            let complete = distinct >= blocks - blocks / 64;
-            if !complete && !full {
+            // The first pass is complete once the trace starts repeating
+            // (the second token faults the blocks the first one streamed).
+            // Fall back to whatever was captured if the buffer fills first.
+            if Plan::trace_cycle(&trace).is_none() && !full {
                 continue;
             }
             let plan = Plan::from_trace(&trace, m.region.block_size() as u64, true);
@@ -279,7 +285,14 @@ fn monitor() {
     }
 }
 
-unsafe fn do_mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, off: libc::off_t) -> *mut c_void {
+unsafe fn do_mmap(
+    addr: *mut c_void,
+    len: usize,
+    prot: c_int,
+    flags: c_int,
+    fd: c_int,
+    off: libc::off_t,
+) -> *mut c_void {
     if addr.is_null() && !INSIDE.with(|i| i.get()) {
         INSIDE.with(|i| i.set(true));
         let served = try_serve(len, prot, flags, fd, off);
@@ -294,14 +307,28 @@ unsafe fn do_mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: 
 /// # Safety
 /// Same contract as `mmap(2)`.
 #[no_mangle]
-pub unsafe extern "C" fn mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, off: libc::off_t) -> *mut c_void {
+pub unsafe extern "C" fn mmap(
+    addr: *mut c_void,
+    len: usize,
+    prot: c_int,
+    flags: c_int,
+    fd: c_int,
+    off: libc::off_t,
+) -> *mut c_void {
     do_mmap(addr, len, prot, flags, fd, off)
 }
 
 /// # Safety
 /// Same contract as `mmap64(3)`.
 #[no_mangle]
-pub unsafe extern "C" fn mmap64(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, off: libc::off_t) -> *mut c_void {
+pub unsafe extern "C" fn mmap64(
+    addr: *mut c_void,
+    len: usize,
+    prot: c_int,
+    flags: c_int,
+    fd: c_int,
+    off: libc::off_t,
+) -> *mut c_void {
     do_mmap(addr, len, prot, flags, fd, off)
 }
 

@@ -77,7 +77,7 @@ fn usage() -> ! {
          [--size 8G] [--budget 2G] [--dir .] [--block 1M] [--passes 3] [--ops 200000] [--threads 1] [--cgroup]\n               \
          [--plan] [--chunk 4M] [--policy auto|clock|cyclic]\n  \
          ddram llm    --engine ddram|mmap [--model-size 8G] [--budget 2G] [--layers 32] [--tokens 4] [--dir .] [--cgroup]\n               \
-         [--plan] [--experts 1] [--active 1] [--expert-skew 1.0] [--threads 4] [--block 1M]"
+         [--plan] [--experts 1] [--active 1] [--expert-skew 1.0] [--threads 4] [--block 1M] [--io-threads 4] [--lookahead 0]"
     );
     std::process::exit(2)
 }

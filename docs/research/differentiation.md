@@ -92,3 +92,33 @@ verified, same cgroup memory limit for every engine, 4x oversubscription.
 | Dense decode (`ddram llm --plan`) | ddram cyclic; kernel `mmap` | tokens/s (expected: parity with cyclic) |
 | Cold start (`--plan-file`) | ddram cyclic without a plan | time to first token |
 | llama.cpp, unmodified, via the shim | llama.cpp default `mmap` under the same cgroup limit | decode tokens/s, prompt tokens/s |
+
+## 6. Results (October 2026, same VM as `benchmarks.md`)
+
+| Workload | ddram with a plan | ddram v0.1 | kernel mmap | kernel swap |
+|---|---:|---:|---:|---:|
+| Non-sequential chunk sweeps, 4 threads | **5.5 GB/s**, 6.5 GB read per pass | 1.5 GB/s, 23 GB per pass | 1.5 GB/s, 8.5 GB per pass | 0.19 GB/s |
+| Dense decode, 8.6 GB weights | **0.66–0.73 tok/s** | 0.62–0.64 tok/s | 0.14 tok/s | — |
+| MoE decode, 8 experts, 2 active | 1.4–1.5 tok/s, **6.3 GB** read | 1.7 tok/s, 12.1 GB read | 0.8 tok/s, 7.1 GB read | — |
+| llama.cpp, unmodified, learned plan | see `benchmarks.md` | | | |
+
+What was proven: on predictable but non-sequential access the plan is 3.7×
+faster than both ddram's own heuristics and the kernel, at the Belady
+minimum of I/O; on the dense decode loop it matches or slightly beats the
+hand-tuned cyclic policy; on MoE it halves the I/O but, on this VM's
+host-cached virtual disk, the redundant reads of the heuristic version are
+nearly free, so the time advantage needs real NVMe (or more I/O workers) to
+show. Learned plans give the same behaviour to unmodified llama.cpp.
+
+What still needs real hardware: NVMe without a host cache (the MoE time
+advantage, absolute bandwidth), GPU upload paths (unchanged by this work),
+and a real GGUF model (the architecture-faithful random-weight model has the
+same access pattern and compute, but reviewers should confirm with a
+downloaded TinyLlama or Qwen file; the script takes any GGUF).
+
+Recommended next steps, in order: (1) expose plans in the llama.cpp
+integration proper (a `llama_model_loader` hook rather than a shim) and in
+a PyTorch tensor wrapper; (2) the `userfaultfd` engine for the unplannable
+hot-set case; (3) use the plan to drive a compressed tier (compress what is
+far away in the plan) and multi-drive striping (issue the look-ahead across
+drives).

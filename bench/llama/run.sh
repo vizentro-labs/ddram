@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# llama.cpp, unmodified, under a cgroup memory limit smaller than the model:
+# llama.cpp, unmodified, under a cgroup memory limit smaller than the model
+# (weights are used in place from the mapping: --no-repack, since repacking
+# copies them into anonymous memory on every variant):
 # its own mmap loading vs the same binary with libddram_shim.so preloaded
 # (learning the access plan on the first pass, then reusing the saved plan).
 # Runs are interleaved and repeated; report medians. Linux, root required.
@@ -20,10 +22,16 @@ THREADS=${THREADS:-4}
 PROMPT=${PROMPT:-"Write a short story about a lighthouse keeper who finds a message in a bottle."}
 OUT=${OUT:-bench/llama/results-$(date +%Y%m%d-%H%M%S).txt}
 PLANFILE="$MODEL.ddram-plan"
-CG=/sys/fs/cgroup/ddram-llama-$$
 limit=$(( $(numfmt --from=iec "$BUDGET") + $(numfmt --from=iec "$SLACK") ))
-mkdir -p "$CG" && echo "$limit" > "$CG/memory.max" || { echo "cgroup v2 setup failed"; exit 1; }
-cleanup() { echo $$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null; rmdir "$CG" 2>/dev/null; }
+# cgroup v1 (memory controller mounted separately) or v2 (unified).
+if [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+  CGROOT=/sys/fs/cgroup/memory; LIMIT_FILE=memory.limit_in_bytes
+else
+  CGROOT=/sys/fs/cgroup; LIMIT_FILE=memory.max
+fi
+CG=$CGROOT/ddram-llama-$$
+mkdir -p "$CG" && echo "$limit" > "$CG/$LIMIT_FILE" || { echo "cgroup setup failed"; exit 1; }
+cleanup() { echo $$ > "$CGROOT/cgroup.procs" 2>/dev/null; rmdir "$CG" 2>/dev/null; }
 trap cleanup EXIT
 : > "$OUT"
 echo "# model=$MODEL size=$(stat -c %s "$MODEL") budget=$BUDGET slack=$SLACK ntok=$NTOK threads=$THREADS" | tee -a "$OUT"
@@ -32,7 +40,7 @@ run() { # name, env...
   sync; echo 3 > /proc/sys/vm/drop_caches
   echo ">>> $name" | tee -a "$OUT"
   ( echo $BASHPID > "$CG/cgroup.procs"
-    env "$@" "$LLAMA" -m "$MODEL" -p "$PROMPT" -n "$NTOK" -t "$THREADS" --temp 0 -no-cnv -c 512 2>&1 \
+    env "$@" "$LLAMA" -m "$MODEL" -p "$PROMPT" -n "$NTOK" -t "$THREADS" --temp 0 -no-cnv -c 512 --no-repack 2>&1 \
       | grep -E "prompt eval time|eval time|load time|ddram-shim|error" ) | tee -a "$OUT"
   echo "RESULT $name $(grep -E ' eval time' "$OUT" | tail -1 | sed 's/.*(//; s/).*//')" | tee -a "$OUT"
 }

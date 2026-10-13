@@ -155,6 +155,8 @@ pub fn run(a: &Args) {
     let dir = PathBuf::from(a.get_or("dir", "."));
     let engine = a.get_or("engine", "ddram").to_string();
     let block = parse_size(a.get_or("block", "1M")) as usize;
+    let io_threads: usize = a.get_or("io-threads", "4").parse().unwrap();
+    let lookahead = parse_size(a.get_or("lookahead", "0"));
     let dev = disk_for(&dir);
 
     // Rows per expert matrix: a multiple of 8 so the block holds whole rows.
@@ -187,11 +189,13 @@ pub fn run(a: &Args) {
             Policy::Cyclic
         };
         c.prefetch_depth = 32;
+        c.io_threads = io_threads;
         Region::new(c).expect("region")
     });
     if let (Some(r), true, 1) = (&region, use_plan, experts) {
         // Dense: one cyclic plan over the layers, declared once.
         let mut plan = Plan::cyclic();
+        plan.set_lookahead(lookahead);
         for l in 0..layers {
             plan.push(expert_off(l, 0) as u64, layer_bytes as u64);
         }
@@ -263,6 +267,7 @@ pub fn run(a: &Args) {
         };
         if let (Some(r), true, true) = (&region, use_plan, experts > 1) {
             let mut plan = Plan::new();
+            plan.set_lookahead(lookahead);
             for l in 0..layers {
                 for (off, len) in ranges(l) {
                     plan.push(off as u64, len as u64);

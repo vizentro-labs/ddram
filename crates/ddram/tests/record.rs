@@ -101,6 +101,11 @@ fn record_replay_and_persist() {
     let saved = Plan::load(&plan_file).unwrap();
     assert_eq!(saved, learned);
     r.set_plan(&saved).unwrap();
+    // The first pass of a fresh region reads everything once; the plan is
+    // what makes the passes after it cheap.
+    for &c in &order {
+        assert_eq!(verify(&r, c * chunk, chunk), 0);
+    }
     let before = r.stats().bytes_read;
     for _ in 0..3 {
         for &c in &order {
@@ -117,9 +122,17 @@ fn record_replay_and_persist() {
 #[test]
 fn trace_is_cut_at_one_pass() {
     // A trace that ran into a second pass yields one cycle.
-    let p = Plan::from_trace(&[5, 6, 7, 2, 3, 5, 6, 7, 2], 4096, true);
+    let t = [5, 6, 7, 2, 3, 5, 6, 7, 2];
+    assert_eq!(Plan::trace_cycle(&t), Some(5));
+    let p = Plan::from_trace(&t, 4096, true);
     assert_eq!(p.ranges(), &[(5 * 4096, 3 * 4096), (2 * 4096, 2 * 4096)]);
     assert!(p.is_cyclic());
+    // Nearby repeats (two threads faulting one block) are not a cycle.
+    assert_eq!(Plan::trace_cycle(&[1, 1, 2, 2, 3, 4, 4, 5]), None);
+    assert_eq!(
+        Plan::from_trace(&[1, 1, 2], 4096, false).ranges(),
+        &[(4096, 8192)]
+    );
     // Recording with a small buffer keeps the first entries only.
     let r = Region::new({
         let mut c = Config::new((8 * MB) as u64, 4 * bs(), tmp());
