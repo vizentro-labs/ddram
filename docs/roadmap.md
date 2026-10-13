@@ -1,6 +1,6 @@
 # Roadmap
 
-## v0.1 (this release)
+## v0.1
 - [x] Cross-platform pager: Linux, macOS, Windows (fault-driven, frame arena)
 - [x] Explicit API: pin / read_at / write_at / prefetch / advise
 - [x] CLOCK + scan-resistant cyclic policy, stream detection, coalesced readahead
@@ -11,7 +11,7 @@
 - [x] Background reclaimer (free-frame pool), coalesced write-back
 - [x] Health-driven limits: `Region::apply_health` (endurance share, thermal back-off, unsafe-drive clamp)
 
-## v0.2
+## v0.2 (this release)
 - [x] Plan-driven paging: `Plan` / `Region::set_plan`, Belady-optimal eviction
       and exact prefetch along a declared access order (Rust + C API)
 - [x] `ddram llm` mixture-of-experts workload, `ddram bench --workload chunks`
