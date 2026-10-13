@@ -494,7 +494,8 @@ impl Region {
         Some(Plan::from_trace(&blocks, self.inner.bs as u64, cyclic))
     }
 
-    /// Write back all dirty blocks and sync the backing file.
+    /// Write back all dirty blocks, wait for write-backs already in flight,
+    /// and sync the backing file.
     pub fn flush(&self) -> io::Result<()> {
         for b in 0..self.inner.nblocks {
             self.inner.clean(b);
