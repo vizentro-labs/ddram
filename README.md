@@ -142,8 +142,8 @@ the decode speed of its own `mmap` loading under the same memory limit
 
 ## Project status
 
-v0.1, experimental. The engine, policies, governor and SMART tooling are
-implemented and tested on CPU workloads. GPU paths are designed and exposed
+v0.2, experimental. The engine, policies, access plans, governor and SMART
+tooling are implemented and tested on CPU workloads. GPU paths are designed and exposed
 but **not yet validated on GPU hardware**. See the roadmap in
 [docs/roadmap.md](docs/roadmap.md).
 

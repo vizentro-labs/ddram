@@ -19,7 +19,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "ddram"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossbeam-queue",
  "libc",
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "ddram-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ddram",
  "libc",
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "ddram-shim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ddram",
  "libc",
