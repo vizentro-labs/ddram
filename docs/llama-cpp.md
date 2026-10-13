@@ -50,4 +50,6 @@ Q4_K_M (636 MiB). The compute and the memory access pattern per token are
 those of the real model; only the generated text is meaningless. The script
 accepts any GGUF, so the numbers can be reproduced with a real model.
 
-Results are in [benchmarks.md](benchmarks.md).
+Results are in [benchmarks.md](benchmarks.md): 2.1–2.6× llama.cpp's own
+`mmap` loading; the learned plan itself is at parity-or-below the cyclic
+heuristic on this dense pattern (see there for why).
