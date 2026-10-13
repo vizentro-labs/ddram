@@ -1,0 +1,20 @@
+[package]
+name = "ddram-cli"
+description = "ddram command line: SMART health, endurance budget, benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "ddram"
+path = "src/main.rs"
+
+[dependencies]
+ddram = { path = "../ddram" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

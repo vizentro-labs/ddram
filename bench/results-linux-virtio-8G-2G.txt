@@ -1,0 +1,111 @@
+>>> --engine ddram --block 1M --workload cyclic --passes 3
+# engine=ddram workload=cyclic size=8589934592 budget=2147483648 block=1048576 threads=1 dev=vda
+fill        :   3.92 s   2.190 GB/s  disk_w=6.46 GB
+settle      :   1.91 s
+pass 0      :   1.92 s   4.478 GB/s  disk_r=6.65 GB
+pass 1      :   1.91 s   4.487 GB/s  disk_r=6.65 GB
+pass 2      :   1.97 s   4.363 GB/s  disk_r=6.65 GB
+ddram       : hard=16 soft=24481 wfault=0 prefetch=27201 evict=25209 writeback=8192 direct_reclaim=2231 cyclic=true direct_io=true
+RESULT engine=ddram workload=cyclic secs=5.802 disk_read_gb=19.948 disk_write_gb=0.000 peak_mem_mb=2074 errors=0 throughput_gbps=4.442
+>>> --engine ddram --block 1M --workload cyclic --passes 3 --threads 4
+# engine=ddram workload=cyclic size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   3.69 s   2.329 GB/s  disk_w=6.48 GB
+settle      :   2.24 s
+pass 0      :   1.53 s   5.609 GB/s  disk_r=6.66 GB
+pass 1      :   1.62 s   5.292 GB/s  disk_r=6.68 GB
+pass 2      :   1.47 s   5.830 GB/s  disk_r=6.65 GB
+ddram       : hard=3223 soft=16356 wfault=0 prefetch=24074 evict=25317 writeback=8192 direct_reclaim=3006 cyclic=true direct_io=true
+RESULT engine=ddram workload=cyclic secs=4.628 disk_read_gb=19.982 disk_write_gb=0.000 peak_mem_mb=2075 errors=0 throughput_gbps=5.568
+>>> --engine ddram --block 16K --workload random --ops 200000 --threads 4
+# engine=ddram workload=random size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+fill        :  15.92 s   0.539 GB/s  disk_w=6.45 GB
+settle      :   7.83 s
+ops         : 200000 in 6.06 s = 32991 ops/s  p50<=131us p99<=2097us p99.9<=4194us
+ddram       : hard=185126 soft=476489 wfault=0 prefetch=491212 evict=548030 writeback=524288 direct_reclaim=38886 cyclic=false direct_io=true
+RESULT engine=ddram workload=random secs=6.062 disk_read_gb=2.495 disk_write_gb=0.006 peak_mem_mb=2125 errors=0 ops_per_s=32991 p50_us=131 p99_us=2097 p999_us=4194
+>>> --engine ddram --block 16K --workload zipf --ops 1000000 --threads 4
+# engine=ddram workload=zipf size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+fill        :  15.44 s   0.556 GB/s  disk_w=6.44 GB
+settle      :   7.89 s
+ops         : 1000000 in 9.88 s = 101194 ops/s  p50<=0us p99<=524us p99.9<=4194us
+ddram       : hard=266781 soft=492384 wfault=0 prefetch=503678 evict=643394 writeback=524288 direct_reclaim=32273 cyclic=false direct_io=true
+RESULT engine=ddram workload=zipf secs=9.882 disk_read_gb=4.032 disk_write_gb=0.000 peak_mem_mb=2126 errors=0 ops_per_s=101194 p50_us=0 p99_us=524 p999_us=4194
+>>> --engine ddram --block 16K --workload zipf-write --ops 1000000 --threads 4
+# engine=ddram workload=zipf-write size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+fill        :  16.21 s   0.530 GB/s  disk_w=6.44 GB
+settle      :   8.16 s
+ops         : 1000000 in 14.40 s = 69444 ops/s  p50<=0us p99<=1048us p99.9<=2097us
+ddram       : hard=268620 soft=485454 wfault=19881 prefetch=497947 evict=635500 writeback=654868 direct_reclaim=121505 cyclic=false direct_io=true
+RESULT engine=ddram workload=zipf-write secs=14.400 disk_read_gb=3.969 disk_write_gb=2.140 peak_mem_mb=2126 errors=0 ops_per_s=69444 p50_us=0 p99_us=1048 p999_us=2097
+>>> --engine mmap --block 1M --workload cyclic --passes 3
+# engine=mmap workload=cyclic size=8589934592 budget=2147483648 block=1048576 threads=1 dev=vda
+fill        :  11.28 s   0.762 GB/s  disk_w=6.99 GB
+settle      :   1.42 s
+pass 0      :   3.99 s   2.152 GB/s  disk_r=8.59 GB
+pass 1      :   4.13 s   2.080 GB/s  disk_r=8.59 GB
+pass 2      :   3.85 s   2.233 GB/s  disk_r=8.59 GB
+RESULT engine=mmap workload=cyclic secs=11.970 disk_read_gb=25.768 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 throughput_gbps=2.153
+>>> --engine mmap --block 1M --workload cyclic --passes 3 --threads 4
+# engine=mmap workload=cyclic size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   9.16 s   0.938 GB/s  disk_w=7.17 GB
+settle      :   2.17 s
+pass 0      :   4.49 s   1.913 GB/s  disk_r=8.59 GB
+pass 1      :   4.83 s   1.779 GB/s  disk_r=8.59 GB
+pass 2      :   4.90 s   1.753 GB/s  disk_r=8.59 GB
+RESULT engine=mmap workload=cyclic secs=14.217 disk_read_gb=25.770 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 throughput_gbps=1.813
+>>> --engine mmap --block 16K --workload random --ops 200000 --threads 4
+# engine=mmap workload=random size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+fill        :   8.46 s   1.016 GB/s  disk_w=6.71 GB
+settle      :   1.82 s
+ops         : 200000 in 15.97 s = 12523 ops/s  p50<=524us p99<=2097us p99.9<=4194us
+RESULT engine=mmap workload=random secs=15.971 disk_read_gb=17.560 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 ops_per_s=12523 p50_us=524 p99_us=2097 p999_us=4194
+>>> --engine mmap --block 16K --workload zipf --ops 1000000 --threads 4
+# engine=mmap workload=zipf size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+fill        :   8.58 s   1.001 GB/s  disk_w=6.85 GB
+settle      :   1.65 s
+ops         : 1000000 in 27.51 s = 36345 ops/s  p50<=0us p99<=1048us p99.9<=2097us
+RESULT engine=mmap workload=zipf secs=27.514 disk_read_gb=32.244 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 ops_per_s=36345 p50_us=0 p99_us=1048 p999_us=2097
+>>> --engine mmap --block 16K --workload zipf-write --ops 1000000 --threads 4
+# engine=mmap workload=zipf-write size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+fill        :   8.75 s   0.981 GB/s  disk_w=7.03 GB
+settle      :   1.85 s
+ops         : 1000000 in 11.63 s = 86020 ops/s  p50<=0us p99<=1048us p99.9<=2097us
+RESULT engine=mmap workload=zipf-write secs=11.625 disk_read_gb=0.860 disk_write_gb=5.202 peak_mem_mb=2176 errors=0 ops_per_s=86020 p50_us=0 p99_us=1048 p999_us=2097
+
+# swap engine (earlier run, same machine; swap file later removed for disk space)
+# engine=swap workload=cyclic size=8589934592 budget=2147483648 block=1048576 threads=1 dev=vda
+RESULT engine=swap workload=cyclic secs=79.295 disk_read_gb=25.780 disk_write_gb=24.480 peak_mem_mb=2176 errors=0 throughput_gbps=0.325
+# engine=swap workload=cyclic size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+RESULT engine=swap workload=cyclic secs=83.703 disk_read_gb=25.618 disk_write_gb=25.307 peak_mem_mb=2176 errors=0 throughput_gbps=0.308
+# engine=swap workload=random size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+RESULT engine=swap workload=random secs=4.197 disk_read_gb=0.605 disk_write_gb=0.557 peak_mem_mb=2176 errors=0 ops_per_s=47650 p50_us=65 p99_us=2097 p999_us=4194
+# engine=swap workload=zipf size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+RESULT engine=swap workload=zipf secs=6.606 disk_read_gb=0.837 disk_write_gb=0.790 peak_mem_mb=2176 errors=0 ops_per_s=151367 p50_us=0 p99_us=262 p999_us=4194
+# engine=swap workload=zipf-write size=8589934592 budget=2147483648 block=16384 threads=4 dev=vda
+RESULT engine=swap workload=zipf-write secs=5.730 disk_read_gb=0.837 disk_write_gb=0.785 peak_mem_mb=2176 errors=0 ops_per_s=174527 p50_us=0 p99_us=262 p999_us=4194
+
+# paired interleaved runs (16K blocks, 4 threads)
+RESULT engine=ddram workload=random secs=6.073 disk_read_gb=2.496 disk_write_gb=0.000 peak_mem_mb=2125 errors=0 ops_per_s=32931 p50_us=131 p99_us=2097 p999_us=4194
+RESULT engine=mmap workload=random secs=15.530 disk_read_gb=17.542 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 ops_per_s=12878 p50_us=524 p99_us=2097 p999_us=4194
+RESULT engine=ddram workload=zipf secs=10.028 disk_read_gb=4.039 disk_write_gb=0.000 peak_mem_mb=2126 errors=0 ops_per_s=99720 p50_us=0 p99_us=524 p999_us=4194
+RESULT engine=mmap workload=zipf secs=25.062 disk_read_gb=32.005 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 ops_per_s=39901 p50_us=0 p99_us=1048 p999_us=2097
+RESULT engine=ddram workload=zipf-write secs=12.878 disk_read_gb=3.975 disk_write_gb=2.147 peak_mem_mb=2126 errors=0 ops_per_s=77653 p50_us=0 p99_us=524 p999_us=2097
+RESULT engine=mmap workload=zipf-write secs=10.310 disk_read_gb=0.860 disk_write_gb=4.236 peak_mem_mb=2176 errors=0 ops_per_s=96996 p50_us=0 p99_us=1048 p999_us=2097
+RESULT engine=ddram workload=random secs=5.826 disk_read_gb=2.490 disk_write_gb=0.000 peak_mem_mb=2125 errors=0 ops_per_s=34326 p50_us=131 p99_us=2097 p999_us=4194
+RESULT engine=mmap workload=random secs=14.297 disk_read_gb=17.563 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 ops_per_s=13989 p50_us=524 p99_us=1048 p999_us=4194
+RESULT engine=ddram workload=zipf secs=10.008 disk_read_gb=4.029 disk_write_gb=0.000 peak_mem_mb=2126 errors=0 ops_per_s=99921 p50_us=0 p99_us=524 p999_us=4194
+RESULT engine=mmap workload=zipf secs=27.492 disk_read_gb=32.173 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 ops_per_s=36374 p50_us=0 p99_us=1048 p999_us=4194
+RESULT engine=ddram workload=zipf-write secs=13.985 disk_read_gb=3.978 disk_write_gb=2.150 peak_mem_mb=2126 errors=0 ops_per_s=71505 p50_us=0 p99_us=1048 p999_us=2097
+RESULT engine=mmap workload=zipf-write secs=11.209 disk_read_gb=0.860 disk_write_gb=4.904 peak_mem_mb=2176 errors=0 ops_per_s=89217 p50_us=0 p99_us=1048 p999_us=2097
+
+# ddram llm
+token 0: 3.08 s (2.79 GB/s of weights)  out=1.494904
+token 1: 1.76 s (4.88 GB/s of weights)  out=0.314775
+token 2: 1.69 s (5.10 GB/s of weights)  out=-0.685394
+token 3: 1.77 s (4.85 GB/s of weights)  out=1.253029
+RESULT llm engine=ddram tokens_per_s=0.482 secs=8.30 checksum=2.377314 ddram_read_gb=30.69 cyclic=true
+token 0: 6.63 s (1.30 GB/s of weights)  out=1.494904
+token 1: 6.91 s (1.24 GB/s of weights)  out=0.314775
+token 2: 6.77 s (1.27 GB/s of weights)  out=-0.685394
+token 3: 6.92 s (1.24 GB/s of weights)  out=1.253029
+RESULT llm engine=mmap tokens_per_s=0.147 secs=27.23 checksum=2.377314

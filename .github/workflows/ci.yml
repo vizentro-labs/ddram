@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same branch or PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu: x86_64, 4 KiB pages; macos-14: Apple Silicon, 16 KiB pages;
+        # windows: placeholders + vectored exception handler, 64 KiB granularity.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --workspace --all-targets
+      - name: Test
+        run: cargo test --workspace --release
+      - name: C example
+        if: runner.os != 'Windows'
+        run: make -C examples/c && ./examples/c/stream "$RUNNER_TEMP"
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          cargo run -q --release -p ddram-cli -- bench --engine ddram --workload cyclic \
+            --size 256M --budget 64M --dir "$RUNNER_TEMP" --passes 2
+          # Random access wants small blocks (64 KiB is the Windows minimum).
+          cargo run -q --release -p ddram-cli -- bench --engine ddram --workload zipf-write \
+            --size 256M --budget 64M --block 64K --dir "$RUNNER_TEMP" --ops 20000 --threads 4
+          # SMART needs privileges and real NVMe; report but do not fail.
+          cargo run -q --release -p ddram-cli -- smart "$RUNNER_TEMP" || true
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Cross-check other targets
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-pc-windows-msvc
+          cargo check -p ddram --target aarch64-apple-darwin
+          cargo check -p ddram --target x86_64-pc-windows-msvc

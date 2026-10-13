@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/ddram", "crates/ddram-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Vizentro Labs"]
+repository = "https://github.com/vizentro-labs/ddram"
+rust-version = "1.75"
+
+[profile.release]
+debug = 1
+panic = "abort"
