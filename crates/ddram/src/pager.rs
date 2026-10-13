@@ -1206,7 +1206,9 @@ impl Inner {
         loop {
             let s = st.load(Acquire);
             if tag(s) != RESIDENT {
-                if matches!(tag(s), BUSY | LOADING) {
+                // An eviction in flight may still be writing the block back:
+                // wait for it, so `flush` never syncs ahead of a write-back.
+                if matches!(tag(s), BUSY | LOADING | EVICTING) {
                     self.backoff(&mut spins);
                     continue;
                 }
