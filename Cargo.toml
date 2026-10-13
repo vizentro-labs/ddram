@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ddram", "crates/ddram-cli"]
+members = ["crates/ddram", "crates/ddram-cli", "crates/ddram-shim"]
 
 [workspace.package]
 version = "0.1.0"

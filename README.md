@@ -124,6 +124,10 @@ and about 2.5× faster on random reads, and it writes half as much to NAND.
 Kernel swap is still faster on fine-grained random and hot-set workloads,
 and mmap on hot-set writes.
 Closing those gaps is on the [roadmap](docs/roadmap.md) (Linux `userfaultfd` engine).
+Unmodified llama.cpp runs on ddram through an `LD_PRELOAD` shim: 2.1–2.6×
+the decode speed of its own `mmap` loading under the same memory limit
+(4.6 vs 1.7 tokens/s, 636 MiB model in 160 MiB); see
+[docs/llama-cpp.md](docs/llama-cpp.md).
 
 ## Platform support
 

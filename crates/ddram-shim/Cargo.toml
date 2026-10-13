@@ -1,0 +1,20 @@
+[package]
+name = "ddram-shim"
+description = "LD_PRELOAD shim: serve large read-only file mappings (LLM weights) from a ddram region with a learned access plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "ddram_shim"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ddram = { path = "../ddram" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

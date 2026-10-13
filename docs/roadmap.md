@@ -16,8 +16,10 @@
       and exact prefetch along a declared access order (Rust + C API)
 - [x] `ddram llm` mixture-of-experts workload, `ddram bench --workload chunks`
 - [x] Learned plans: `Region::record` / `recorded_plan`, `Plan::save`/`load`
-- [ ] `LD_PRELOAD` shim: unmodified llama.cpp (and any mmap-based loader)
+- [x] `LD_PRELOAD` shim: unmodified llama.cpp (and any mmap-based loader)
       served from a region, learning and persisting its plan
+- [ ] Smooth recorded plans (sort within a window) so multi-threaded traces
+      yield the tensor order rather than the thread interleaving
 - [ ] Plans in the llama.cpp loader proper (declared per layer) and a
       PyTorch tensor wrapper
 
