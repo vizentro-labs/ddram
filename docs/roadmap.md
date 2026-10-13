@@ -15,9 +15,11 @@
 - [x] Plan-driven paging: `Plan` / `Region::set_plan`, Belady-optimal eviction
       and exact prefetch along a declared access order (Rust + C API)
 - [x] `ddram llm` mixture-of-experts workload, `ddram bench --workload chunks`
-- [ ] Learned plans: record a run's access order and reuse it on the next run
+- [x] Learned plans: `Region::record` / `recorded_plan`, `Plan::save`/`load`
 - [ ] `LD_PRELOAD` shim: unmodified llama.cpp (and any mmap-based loader)
-      served from a region with a learned plan
+      served from a region, learning and persisting its plan
+- [ ] Plans in the llama.cpp loader proper (declared per layer) and a
+      PyTorch tensor wrapper
 
 ## Next
 - [ ] **GPU validation**: CUDA (`cudaHostRegister` on the arena), Metal

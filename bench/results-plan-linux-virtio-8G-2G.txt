@@ -1,0 +1,153 @@
+>>> bench --engine ddram --workload chunks --size 8G --passes 3 --threads 4
+# engine=ddram workload=chunks plan=false size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   5.98 s   1.436 GB/s  disk_w=6.47 GB
+settle      :   1.38 s
+pass 0      :   6.22 s   1.381 GB/s  disk_r=22.95 GB
+pass 1      :   6.04 s   1.422 GB/s  disk_r=23.71 GB
+pass 2      :   5.83 s   1.474 GB/s  disk_r=23.60 GB
+ddram       : hard=21105 soft=7410 wfault=0 prefetch=54142 evict=73239 writeback=8192 direct_reclaim=3105 cyclic=false plan_hits=0 plan_misses=0 direct_io=true
+RESULT engine=ddram workload=chunks plan=false secs=18.087 disk_read_gb=70.256 disk_write_gb=0.000 peak_mem_mb=2076 errors=0 throughput_gbps=1.425
+>>> bench --engine ddram --workload chunks --size 8G --passes 3 --threads 4 --plan
+# engine=ddram workload=chunks plan=true size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   5.73 s   1.500 GB/s  disk_w=6.57 GB
+settle      :   1.86 s
+pass 0      :   1.55 s   5.536 GB/s  disk_r=6.51 GB
+pass 1      :   1.58 s   5.428 GB/s  disk_r=6.53 GB
+pass 2      :   1.53 s   5.616 GB/s  disk_r=6.55 GB
+ddram       : hard=6373 soft=17269 wfault=0 prefetch=20652 evict=25019 writeback=8204 direct_reclaim=1059 cyclic=false plan_hits=27026 plan_misses=0 direct_io=true
+RESULT engine=ddram workload=chunks plan=true secs=4.664 disk_read_gb=19.583 disk_write_gb=0.000 peak_mem_mb=2077 errors=0 throughput_gbps=5.525
+>>> bench --engine mmap --workload chunks --size 8G --passes 3 --threads 4
+# engine=mmap workload=chunks plan=false size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :  11.01 s   0.780 GB/s  disk_w=6.72 GB
+settle      :   1.45 s
+pass 0      :   5.56 s   1.545 GB/s  disk_r=8.56 GB
+pass 1      :   5.49 s   1.566 GB/s  disk_r=8.55 GB
+pass 2      :   5.39 s   1.593 GB/s  disk_r=8.53 GB
+RESULT engine=mmap workload=chunks plan=false secs=16.438 disk_read_gb=25.647 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 throughput_gbps=1.568
+>>> bench --engine swap --workload chunks --size 8G --passes 3 --threads 4
+# engine=swap workload=chunks plan=false size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :  16.28 s   0.528 GB/s  disk_w=6.37 GB
+settle      :   0.00 s
+pass 0      :  47.37 s   0.181 GB/s  disk_r=8.72 GB
+pass 1      :  43.80 s   0.196 GB/s  disk_r=9.89 GB
+pass 2      :  44.25 s   0.194 GB/s  disk_r=10.14 GB
+RESULT engine=swap workload=chunks plan=false secs=135.420 disk_read_gb=28.755 disk_write_gb=25.144 peak_mem_mb=2176 errors=0 throughput_gbps=0.190
+>>> bench --engine ddram --workload chunks --size 8G --passes 3 --threads 4
+# engine=ddram workload=chunks plan=false size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   3.82 s   2.246 GB/s  disk_w=6.48 GB
+settle      :  21.90 s
+pass 0      :   5.57 s   1.543 GB/s  disk_r=22.56 GB
+pass 1      :   5.88 s   1.462 GB/s  disk_r=23.85 GB
+pass 2      :   5.84 s   1.472 GB/s  disk_r=23.85 GB
+ddram       : hard=21059 soft=8802 wfault=0 prefetch=54192 evict=73267 writeback=8192 direct_reclaim=3059 cyclic=false plan_hits=0 plan_misses=0 direct_io=true
+RESULT engine=ddram workload=chunks plan=false secs=17.282 disk_read_gb=70.262 disk_write_gb=0.000 peak_mem_mb=2076 errors=0 throughput_gbps=1.491
+>>> bench --engine ddram --workload chunks --size 8G --passes 3 --threads 4 --plan
+# engine=ddram workload=chunks plan=true size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   5.42 s   1.584 GB/s  disk_w=6.55 GB
+settle      :   1.04 s
+pass 0      :   1.60 s   5.363 GB/s  disk_r=6.54 GB
+pass 1      :   1.64 s   5.232 GB/s  disk_r=6.54 GB
+pass 2      :   1.51 s   5.693 GB/s  disk_r=6.53 GB
+ddram       : hard=6424 soft=17164 wfault=0 prefetch=20626 evict=25062 writeback=8210 direct_reclaim=1106 cyclic=false plan_hits=27068 plan_misses=0 direct_io=true
+RESULT engine=ddram workload=chunks plan=true secs=4.753 disk_read_gb=19.608 disk_write_gb=0.000 peak_mem_mb=2077 errors=0 throughput_gbps=5.422
+>>> bench --engine mmap --workload chunks --size 8G --passes 3 --threads 4
+# engine=mmap workload=chunks plan=false size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :   9.75 s   0.881 GB/s  disk_w=6.85 GB
+settle      :   1.91 s
+pass 0      :   5.93 s   1.449 GB/s  disk_r=8.56 GB
+pass 1      :   5.82 s   1.476 GB/s  disk_r=8.54 GB
+pass 2      :   5.68 s   1.511 GB/s  disk_r=8.51 GB
+RESULT engine=mmap workload=chunks plan=false secs=17.428 disk_read_gb=25.611 disk_write_gb=0.000 peak_mem_mb=2176 errors=0 throughput_gbps=1.479
+>>> bench --engine swap --workload chunks --size 8G --passes 3 --threads 4
+# engine=swap workload=chunks plan=false size=8589934592 budget=2147483648 block=1048576 threads=4 dev=vda
+fill        :  16.51 s   0.520 GB/s  disk_w=6.38 GB
+settle      :   0.00 s
+pass 0      :  48.34 s   0.178 GB/s  disk_r=8.71 GB
+pass 1      :  43.71 s   0.197 GB/s  disk_r=9.98 GB
+pass 2      :  44.06 s   0.195 GB/s  disk_r=10.20 GB
+RESULT engine=swap workload=chunks plan=false secs=136.100 disk_read_gb=28.891 disk_write_gb=25.153 peak_mem_mb=2176 errors=0 throughput_gbps=0.189
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4
+generating 8.6 GB model file at /tmp/claude-0/-home-user-ddram/52864c5f-7948-575d-928b-6b775cbe00c5/scratchpad/bench/ddram-llm-8589934592.weights ...
+# llm engine=ddram mode=hints model=8.59 GB layers=32 experts=1 active=1 skew=1 rows/expert=16384 hidden=4096 budget=2.15 GB threads=4
+token 0: 2.42 s (3.55 GB/s of weights)  read=8.72 GB hard=1163 soft=6850  out=1.494904
+token 1: 1.52 s (5.66 GB/s of weights)  read=6.93 GB hard=1796 soft=12637  out=0.314775
+token 2: 1.65 s (5.20 GB/s of weights)  read=6.94 GB hard=2446 soft=18383  out=-0.685394
+token 3: 1.70 s (5.04 GB/s of weights)  read=6.91 GB hard=3083 soft=24173  out=1.253029
+RESULT llm engine=ddram mode=hints experts=1 active=1 tokens_per_s=0.548 steady_tokens_per_s=0.615 secs=7.29 disk_read_gb=29.50 checksum=2.377314 ddram_read_gb=29.50 hard_faults=3083 plan_hits=0 plan_misses=0 cyclic=true
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4 --plan
+# llm engine=ddram mode=plan model=8.59 GB layers=32 experts=1 active=1 skew=1 rows/expert=16384 hidden=4096 budget=2.15 GB threads=4
+token 0: 2.21 s (3.88 GB/s of weights)  read=8.59 GB hard=1616 soft=5650  out=1.494904
+token 1: 1.53 s (5.63 GB/s of weights)  read=6.63 GB hard=2790 soft=10057  out=0.314775
+token 2: 1.38 s (6.20 GB/s of weights)  read=6.56 GB hard=3937 soft=14371  out=-0.685394
+token 3: 1.65 s (5.20 GB/s of weights)  read=6.56 GB hard=5115 soft=18611  out=1.253029
+RESULT llm engine=ddram mode=plan experts=1 active=1 tokens_per_s=0.590 steady_tokens_per_s=0.657 secs=6.78 disk_read_gb=28.36 checksum=2.377314 ddram_read_gb=28.35 hard_faults=5115 plan_hits=26969 plan_misses=0 cyclic=false
+>>> llm --engine mmap --model-size 8G --layers 32 --tokens 4
+# llm engine=mmap mode=hints model=8.59 GB layers=32 experts=1 active=1 skew=1 rows/expert=16384 hidden=4096 budget=2.15 GB threads=4
+token 0: 6.11 s (1.41 GB/s of weights)  out=1.494904
+token 1: 7.01 s (1.23 GB/s of weights)  out=0.314775
+token 2: 7.22 s (1.19 GB/s of weights)  out=-0.685394
+token 3: 7.51 s (1.14 GB/s of weights)  out=1.253029
+RESULT llm engine=mmap mode=hints experts=1 active=1 tokens_per_s=0.144 steady_tokens_per_s=0.138 secs=27.84 disk_read_gb=34.37 checksum=2.377314
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4
+# llm engine=ddram mode=hints model=8.59 GB layers=32 experts=1 active=1 skew=1 rows/expert=16384 hidden=4096 budget=2.15 GB threads=4
+token 0: 2.48 s (3.46 GB/s of weights)  read=10.44 GB hard=1861 soft=5958  out=1.494904
+token 1: 1.55 s (5.53 GB/s of weights)  read=6.88 GB hard=2477 soft=11765  out=0.314775
+token 2: 1.52 s (5.67 GB/s of weights)  read=6.94 GB hard=3138 soft=17530  out=-0.685394
+token 3: 1.60 s (5.36 GB/s of weights)  read=6.86 GB hard=3750 soft=23351  out=1.253029
+RESULT llm engine=ddram mode=hints experts=1 active=1 tokens_per_s=0.559 steady_tokens_per_s=0.642 secs=7.15 disk_read_gb=31.13 checksum=2.377314 ddram_read_gb=31.12 hard_faults=3750 plan_hits=0 plan_misses=0 cyclic=true
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4 --plan
+# llm engine=ddram mode=plan model=8.59 GB layers=32 experts=1 active=1 skew=1 rows/expert=16384 hidden=4096 budget=2.15 GB threads=4
+token 0: 2.14 s (4.01 GB/s of weights)  read=8.59 GB hard=1577 soft=5736  out=1.494904
+token 1: 1.34 s (6.43 GB/s of weights)  read=6.63 GB hard=2755 soft=10062  out=0.314775
+token 2: 1.35 s (6.36 GB/s of weights)  read=6.55 GB hard=3881 soft=14424  out=-0.685394
+token 3: 1.40 s (6.12 GB/s of weights)  read=6.58 GB hard=5046 soft=18762  out=1.253029
+RESULT llm engine=ddram mode=plan experts=1 active=1 tokens_per_s=0.642 steady_tokens_per_s=0.733 secs=6.23 disk_read_gb=28.37 checksum=2.377314 ddram_read_gb=28.35 hard_faults=5046 plan_hits=26977 plan_misses=0 cyclic=false
+>>> llm --engine mmap --model-size 8G --layers 32 --tokens 4
+# llm engine=mmap mode=hints model=8.59 GB layers=32 experts=1 active=1 skew=1 rows/expert=16384 hidden=4096 budget=2.15 GB threads=4
+token 0: 5.52 s (1.55 GB/s of weights)  out=1.494904
+token 1: 6.35 s (1.35 GB/s of weights)  out=0.314775
+token 2: 6.35 s (1.35 GB/s of weights)  out=-0.685394
+token 3: 7.29 s (1.18 GB/s of weights)  out=1.253029
+RESULT llm engine=mmap mode=hints experts=1 active=1 tokens_per_s=0.157 steady_tokens_per_s=0.150 secs=25.52 disk_read_gb=34.37 checksum=2.377314
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4 --experts 8 --active 2
+# llm engine=ddram mode=hints model=8.59 GB layers=32 experts=8 active=2 skew=1 rows/expert=2048 hidden=4096 budget=2.15 GB threads=4
+token 0: 1.08 s (1.99 GB/s of weights)  read=3.71 GB hard=927 soft=936  out=0.468083
+token 1: 0.58 s (3.68 GB/s of weights)  read=2.78 GB hard=1555 soft=1910  out=0.879683
+token 2: 0.59 s (3.65 GB/s of weights)  read=2.69 GB hard=2157 soft=2674  out=-0.089679
+token 3: 0.63 s (3.38 GB/s of weights)  read=2.99 GB hard=2816 soft=3590  out=0.580830
+RESULT llm engine=ddram mode=hints experts=8 active=2 tokens_per_s=1.386 steady_tokens_per_s=1.660 secs=2.89 disk_read_gb=12.16 checksum=1.838918 ddram_read_gb=12.16 hard_faults=2816 plan_hits=0 plan_misses=0 cyclic=true
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4 --experts 8 --active 2 --plan
+# llm engine=ddram mode=plan model=8.59 GB layers=32 experts=8 active=2 skew=1 rows/expert=2048 hidden=4096 budget=2.15 GB threads=4
+token 0: 0.99 s (2.18 GB/s of weights)  read=2.15 GB hard=249 soft=1431  out=0.468083
+token 1: 0.78 s (2.74 GB/s of weights)  read=1.48 GB hard=366 soft=2116  out=0.879683
+token 2: 0.50 s (4.29 GB/s of weights)  read=0.99 GB hard=441 soft=2602  out=-0.089679
+token 3: 0.83 s (2.60 GB/s of weights)  read=1.71 GB hard=576 soft=3356  out=0.580830
+RESULT llm engine=ddram mode=plan experts=8 active=2 tokens_per_s=1.291 steady_tokens_per_s=1.421 secs=3.10 disk_read_gb=6.33 checksum=1.838918 ddram_read_gb=6.32 hard_faults=576 plan_hits=1630 plan_misses=0 cyclic=false
+>>> llm --engine mmap --model-size 8G --layers 32 --tokens 4 --experts 8 --active 2
+# llm engine=mmap mode=hints model=8.59 GB layers=32 experts=8 active=2 skew=1 rows/expert=2048 hidden=4096 budget=2.15 GB threads=4
+token 0: 0.82 s (2.62 GB/s of weights)  out=0.468083
+token 1: 1.12 s (1.92 GB/s of weights)  out=0.879683
+token 2: 1.48 s (1.45 GB/s of weights)  out=-0.089679
+token 3: 1.15 s (1.87 GB/s of weights)  out=0.580830
+RESULT llm engine=mmap mode=hints experts=8 active=2 tokens_per_s=0.876 steady_tokens_per_s=0.801 secs=4.57 disk_read_gb=7.07 checksum=1.838918
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4 --experts 8 --active 2
+# llm engine=ddram mode=hints model=8.59 GB layers=32 experts=8 active=2 skew=1 rows/expert=2048 hidden=4096 budget=2.15 GB threads=4
+token 0: 1.05 s (2.05 GB/s of weights)  read=3.61 GB hard=904 soft=996  out=0.468083
+token 1: 0.54 s (3.98 GB/s of weights)  read=2.79 GB hard=1519 soft=1979  out=0.879683
+token 2: 0.54 s (3.98 GB/s of weights)  read=2.69 GB hard=2130 soft=2750  out=-0.089679
+token 3: 0.61 s (3.50 GB/s of weights)  read=3.02 GB hard=2815 soft=3654  out=0.580830
+RESULT llm engine=ddram mode=hints experts=8 active=2 tokens_per_s=1.459 steady_tokens_per_s=1.772 secs=2.74 disk_read_gb=12.11 checksum=1.838918 ddram_read_gb=12.10 hard_faults=2815 plan_hits=0 plan_misses=0 cyclic=true
+>>> llm --engine ddram --model-size 8G --layers 32 --tokens 4 --experts 8 --active 2 --plan
+# llm engine=ddram mode=plan model=8.59 GB layers=32 experts=8 active=2 skew=1 rows/expert=2048 hidden=4096 budget=2.15 GB threads=4
+token 0: 0.88 s (2.44 GB/s of weights)  read=2.15 GB hard=271 soft=1384  out=0.468083
+token 1: 0.69 s (3.10 GB/s of weights)  read=1.48 GB hard=395 soft=2039  out=0.879683
+token 2: 0.45 s (4.72 GB/s of weights)  read=0.96 GB hard=460 soft=2527  out=-0.089679
+token 3: 0.82 s (2.62 GB/s of weights)  read=1.72 GB hard=609 soft=3270  out=0.580830
+RESULT llm engine=ddram mode=plan experts=8 active=2 tokens_per_s=1.404 steady_tokens_per_s=1.525 secs=2.85 disk_read_gb=6.31 checksum=1.838918 ddram_read_gb=6.31 hard_faults=609 plan_hits=1643 plan_misses=0 cyclic=false
+>>> llm --engine mmap --model-size 8G --layers 32 --tokens 4 --experts 8 --active 2
+# llm engine=mmap mode=hints model=8.59 GB layers=32 experts=8 active=2 skew=1 rows/expert=2048 hidden=4096 budget=2.15 GB threads=4
+token 0: 0.95 s (2.27 GB/s of weights)  out=0.468083
+token 1: 1.06 s (2.03 GB/s of weights)  out=0.879683
+token 2: 1.38 s (1.55 GB/s of weights)  out=-0.089679
+token 3: 1.04 s (2.06 GB/s of weights)  out=0.580830
+RESULT llm engine=mmap mode=hints experts=8 active=2 tokens_per_s=0.903 steady_tokens_per_s=0.861 secs=4.43 disk_read_gb=7.06 checksum=1.838918

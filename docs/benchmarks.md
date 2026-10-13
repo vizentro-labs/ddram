@@ -1,7 +1,81 @@
 # Benchmarks
 
-All numbers are from `bench/run.sh 8G 2G` and `ddram llm`. The raw output is
-in [`bench/results-linux-virtio-8G-2G.txt`](../bench/results-linux-virtio-8G-2G.txt).
+All numbers are from `bench/run.sh 8G 2G`, `bench/plan.sh 8G 2G` and
+`ddram llm`. The raw output is in
+[`bench/results-linux-virtio-8G-2G.txt`](../bench/results-linux-virtio-8G-2G.txt)
+and [`bench/results-plan-linux-virtio-8G-2G.txt`](../bench/results-plan-linux-virtio-8G-2G.txt).
+
+## Plan-driven paging (v0.2)
+
+`Region::set_plan` tells the pager the order in which the region will be
+touched; it then prefetches exactly that and evicts by Belady's optimal rule
+(see [architecture.md](architecture.md#access-plans)). Same machine and
+method as below: 8 GiB of data in a 2 GiB budget, every engine under the
+same cgroup limit, every value verified (`errors=0`), engines interleaved
+(A, B, C, A, B, C) so drift in the host-backed disk hits all of them alike.
+Both rounds are shown; the spread between them is the noise floor.
+
+**Chunks**: 4 MiB chunks read in a fixed pseudo-random order, swept 3 times
+by 4 threads. This is the shape of asset streaming along a known path or of
+experts chosen by a router: perfectly predictable, not sequential. No stream
+detector can prefetch it and no recency policy keeps the right subset.
+
+| Engine | GB/s (round 1 / 2) | Disk read per 8.6 GB pass | vs ddram v0.1 |
+|---|---:|---:|---:|
+| **ddram, plan** | **5.52 / 5.42** | **6.5 GB** | **3.7×** |
+| ddram v0.1 (auto policy, readahead) | 1.43 / 1.49 | 23.4 GB | 1× |
+| kernel mmap | 1.57 / 1.48 | 8.5 GB | 1.1× |
+| kernel swap | 0.19 / 0.19 | 9.6 GB (+8.4 GB written) | 0.13× |
+
+The plan reads each chunk once per pass and keeps a stable subset resident
+(6.5 GB per 8.6 GB pass is the Belady minimum for this budget). v0.1
+ddram's stream detector reads ahead past every chunk boundary and its
+automatic policy flips between cyclic and CLOCK, so it reads 2.7× the data
+of a pass; the kernel reads the whole pass every time. Swap writes every
+page back on every pass although nothing changed.
+
+**Dense decode** (`ddram llm`, 8.6 GB of f32 weights, 32 layers, every
+token reads every layer, 4 compute threads, 4 tokens). The cyclic policy
+was built for exactly this pattern, so parity is the expectation.
+
+| Engine | steady-state tokens/s (round 1 / 2) | Disk read for 4 tokens |
+|---|---:|---:|
+| **ddram, plan** (`--plan`, one cyclic plan over the layers) | **0.66 / 0.73** | 28.4 GB |
+| ddram v0.1 (cyclic policy + `WillNeed` one layer ahead) | 0.62 / 0.64 | 29.5–31.1 GB |
+| kernel mmap (`MADV_SEQUENTIAL` + `MADV_WILLNEED` one layer ahead) | 0.14 / 0.15 | 34.4 GB |
+
+Identical checksum (2.377314) on every engine. The plan is 7–14% faster
+than the hand-tuned cyclic policy and reads 4–9% less, because it needs no
+streaming window beyond its look-ahead; both are 4–5× faster than the
+kernel.
+
+**Mixture-of-experts decode** (`--experts 8 --active 2`: 32 layers × 8
+experts of 32 MiB, 2 experts per layer per token chosen by a deterministic
+router with 1/rank popularity; each token touches 2.1 GB, the budget). The
+plan is declared per token when the token starts, which is what a
+pre-gating router provides; ddram v0.1 and the kernel get `WillNeed` /
+`MADV_WILLNEED` hints for the next layer's experts.
+
+| Engine | steady-state tokens/s (round 1 / 2) | Disk read for 4 tokens | Hard faults |
+|---|---:|---:|---:|
+| **ddram, plan** | 1.42 / 1.53 | **6.3 GB** | 576–609 |
+| ddram v0.1 (hints) | 1.66 / 1.77 | 12.1 GB | 2815 |
+| kernel mmap (hints) | 0.80 / 0.86 | 7.1 GB | — |
+
+Identical checksum (1.838918) on every engine. Here the honest result is
+mixed. The plan reads **half** the data of v0.1 (readahead overshoots every
+expert boundary into experts that are not used) and never guesses, but on
+this VM it is 10–15% slower. The per-token traces show why: the plan run is
+bound by the raw disk rate (1.7 GB in 0.73–0.83 s ≈ 2.1–2.4 GB/s, the
+device's sequential limit), while the v0.1 run's redundant reads of the
+same adjacent experts are served from the host's cache of the virtual disk
+at 4–5 GB/s. On a real NVMe drive without a host cache, half the I/O is
+half the time. With more I/O workers the plan already leads on this VM
+(16 workers: plan 1.67 tokens/s vs hints 1.46, same budget), because its
+reads are issued by the workers rather than by faulting compute threads.
+Both ddram modes are 1.7–2.1× faster than the kernel.
+
+## v0.1 results
 
 ## Setup
 

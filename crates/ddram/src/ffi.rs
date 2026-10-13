@@ -167,7 +167,10 @@ pub unsafe extern "C" fn ddram_stop_recording(r: *const DdramRegion) {
 /// # Safety
 /// `r` must be a live region.
 #[no_mangle]
-pub unsafe extern "C" fn ddram_recorded_plan(r: *const DdramRegion, cyclic: c_int) -> *mut DdramPlan {
+pub unsafe extern "C" fn ddram_recorded_plan(
+    r: *const DdramRegion,
+    cyclic: c_int,
+) -> *mut DdramPlan {
     match (*r).0.recorded_plan(cyclic != 0) {
         Some(p) => Box::into_raw(Box::new(DdramPlan(p))),
         None => ptr::null_mut(),

@@ -106,18 +106,23 @@ every byte verified. The machine is a 4-vCPU VM with a virtio SSD; see
 
 | Workload | ddram | kernel mmap | kernel swap* |
 |---|---:|---:|---:|
+| **Planned, non-sequential sweeps** (4 MiB chunks in a fixed order, 4 threads) | **5.5 GB/s** with a plan (1.5 without) | 1.5 GB/s | 0.19 GB/s |
 | Repeated sweeps, 4 threads (LLM-style weight streaming) | **5.57 GB/s** | 1.81 GB/s | 0.31 GB/s |
-| Synthetic LLM decode, 8.6 GB weights (real compute, identical output) | **0.48 tok/s** | 0.15 tok/s | — |
+| Synthetic LLM decode, 8.6 GB weights (real compute, identical output) | **0.66–0.73 tok/s** with a plan (0.62 without) | 0.14 tok/s | — |
+| Mixture-of-experts decode, 8 experts, 2 active (identical output) | 1.4–1.8 tok/s, **half the I/O** with a plan | 0.8 tok/s | — |
 | Random 4 KiB reads, 4 threads | 33.6k ops/s | 13.4k ops/s | **47.7k ops/s** |
 | Zipf (hot-set) reads, 4 threads | 99.8k ops/s | 38.1k ops/s | **151k ops/s** |
 | Zipf writes, 4 threads (and bytes written to NAND) | 74.6k ops/s (2.2 GB) | 93.1k ops/s (4.6 GB) | **175k ops/s (0.8 GB)** |
 
-\* swap was measured in an earlier session on the same machine; see the report.
+\* swap was measured in an earlier session for the random and Zipf rows; see the report.
 
-Summary: ddram is 3.1–3.3× faster than mmap on streaming and LLM-style
-workloads and about 2.5× faster on random reads, and it writes half as much
-to NAND. Kernel swap is still faster on fine-grained random and hot-set
-workloads, and mmap on hot-set writes.
+Summary: with a declared access plan ddram pages optimally: 3.7× faster
+than its own v0.1 heuristics and than the kernel on predictable
+non-sequential access, and it reads each block once per use. Without a
+plan it is 3.1–3.3× faster than mmap on streaming and LLM-style workloads
+and about 2.5× faster on random reads, and it writes half as much to NAND.
+Kernel swap is still faster on fine-grained random and hot-set workloads,
+and mmap on hot-set writes.
 Closing those gaps is on the [roadmap](docs/roadmap.md) (Linux `userfaultfd` engine).
 
 ## Platform support

@@ -173,20 +173,41 @@ impl Plan {
     }
 
     /// Build a plan from a recorded access order (block indices, see
-    /// `Region::record`). The trace is cut after the last block seen for the
-    /// first time, so a recording that ran into a second pass yields one
-    /// cycle; consecutive blocks merge into ranges.
+    /// `Region::record`). If the trace ran into a second pass (see
+    /// [`Plan::trace_cycle`]) only the first pass is used, each block is
+    /// kept at its first occurrence, and consecutive blocks merge into
+    /// ranges.
     pub fn from_trace(blocks: &[u64], block_size: u64, cyclic: bool) -> Plan {
+        let end = Plan::trace_cycle(blocks).unwrap_or(blocks.len());
         let max = blocks.iter().copied().max().map_or(0, |m| m as usize + 1);
         let mut seen = vec![false; max];
-        let mut end = 0;
+        let once = blocks[..end]
+            .iter()
+            .copied()
+            .filter(|&b| !std::mem::replace(&mut seen[b as usize], true));
+        Plan::from_blocks(once, block_size, cyclic)
+    }
+
+    /// Length of the first pass in a recorded trace: the index of the first
+    /// block that was already seen more than half the distinct blocks ago
+    /// (and at least four entries ago).
+    /// Nearby repeats (several threads faulting the same block, a block
+    /// evicted and re-read within a pass) do not count. `None` if the trace
+    /// does not repeat yet.
+    pub fn trace_cycle(blocks: &[u64]) -> Option<usize> {
+        let max = blocks.iter().copied().max().map_or(0, |m| m as usize + 1);
+        let mut last = vec![usize::MAX; max];
+        let mut distinct = 0usize;
         for (i, &b) in blocks.iter().enumerate() {
-            if !seen[b as usize] {
-                seen[b as usize] = true;
-                end = i + 1;
+            let j = last[b as usize];
+            if j == usize::MAX {
+                distinct += 1;
+            } else if i - j > distinct / 2 && i - j >= 4 {
+                return Some(i);
             }
+            last[b as usize] = i;
         }
-        Plan::from_blocks(blocks[..end].iter().copied(), block_size, cyclic)
+        None
     }
 
     /// Build a plan from a sequence of block indices in access order:
@@ -258,6 +279,12 @@ impl PlanState {
         // together, and the current one is never evicted.
         let chunk = (nframes / 8).max(1);
         let split_above = (nframes / 4).max(1);
+        // Ranges smaller than a quarter of the look-ahead are grouped with
+        // their successors, so a plan recorded at block granularity (several
+        // threads faulting interleaved blocks) still protects the group
+        // being consumed.
+        let min_group = (lookahead / 4).max(1);
+        let mut group = 0usize;
         let mut steps: Vec<u32> = Vec::new();
         let mut range_of_step: Vec<u32> = Vec::new();
         let mut range_start: Vec<u32> = Vec::new();
@@ -275,12 +302,16 @@ impl PlanState {
                 } else {
                     end - b
                 };
-                range_start.push(steps.len() as u32);
+                if group >= min_group || range_start.is_empty() {
+                    range_start.push(steps.len() as u32);
+                    group = 0;
+                }
                 let r = range_start.len() as u32 - 1;
                 for i in 0..n {
                     steps.push((b + i) as u32);
                     range_of_step.push(r);
                 }
+                group += n;
                 b += n;
             }
         }

@@ -462,8 +462,9 @@ impl Region {
         let _ = self.inner.set_plan(None);
     }
 
-    /// Start recording the order in which blocks are faulted in (the first
-    /// touch of every block that is not mapped), keeping up to
+    /// Start recording the order in which blocks are brought in (every
+    /// fault, i.e. the first touch of a block that is not mapped, and every
+    /// explicit pin or read/write of an absent block), keeping up to
     /// `max_entries`. Recording costs one atomic store per fault. Use
     /// [`Region::recorded_plan`] to turn the trace into a [`Plan`], which can
     /// be installed with [`Region::set_plan`] and saved for the next run.

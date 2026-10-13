@@ -1165,6 +1165,9 @@ impl Inner {
                         .compare_exchange(s, mk(LOADING, 0, false, false), AcqRel, Relaxed)
                         .is_ok()
                     {
+                        if !self.recorder.load(Relaxed).is_null() {
+                            self.with_recorder(|r| r.push(b));
+                        }
                         let f = self.load(b, false, false, true);
                         if dirty {
                             self.mark_dirty(b);
