@@ -15,6 +15,11 @@ diffusion models, training data.
 * **Transparent and explicit modes.** Hand existing code a plain pointer
   (faults are served from the SSD), or use `pin`/`read_at`/`write_at`/
   `prefetch`/`advise` when the access pattern is known.
+* **Plan-driven paging.** Declare the order in which the region will be
+  touched (`Region::set_plan`: a list of ranges, optionally cyclic) and the
+  pager prefetches exactly what comes next and evicts by Belady's optimal
+  rule instead of guessing from the past. LLM layer order, MoE expert
+  routing and asset streaming paths are all plans. See the benchmarks.
 * **Hard RAM bound.** Data is held only in a fixed frame arena; direct I/O
   (`O_DIRECT` / `F_NOCACHE` / `FILE_FLAG_NO_BUFFERING`) bypasses the OS page
   cache.
@@ -51,6 +56,11 @@ region.advise(0, region.len(), Advice::Cyclic);     // repeated sweeps (LLM weig
 region.prefetch(next_layer_off, layer_len);         // overlap I/O with compute
 let pin = region.pin(block);                         // resident until dropped
 upload_to_gpu(region.arena().0, pin.arena_offset()); // DMA from the pinned arena
+
+// Planned: declare the access order and let the pager page optimally.
+let mut plan = ddram::Plan::cyclic();                // repeats every token
+for l in 0..layers { plan.push(layer_off(l), layer_len); }
+region.set_plan(&plan)?;                             // exact prefetch, Belady eviction
 ```
 
 Map an existing file (model weights, asset pack) read-only:
@@ -80,8 +90,10 @@ See [examples/c](examples/c). Build the static or shared library with
 ```text
 ddram smart  /mnt/nvme                 # NVMe health of the drive behind a path
 ddram budget /mnt/nvme --share 0.25    # endurance budget -> governor rate
-ddram bench  --engine ddram|mmap|swap --workload cyclic|random|zipf|zipf-write \
-             --size 8G --budget 2G --dir /mnt/nvme --cgroup
+ddram bench  --engine ddram|mmap|swap --workload cyclic|chunks|random|zipf|zipf-write \
+             --size 8G --budget 2G --dir /mnt/nvme --cgroup [--plan]
+ddram llm    --engine ddram|mmap --model-size 8G --budget 2G [--plan] \
+             [--experts 8 --active 2]     # dense or mixture-of-experts decode
 ```
 
 ## Benchmarks
@@ -94,18 +106,23 @@ every byte verified. The machine is a 4-vCPU VM with a virtio SSD; see
 
 | Workload | ddram | kernel mmap | kernel swap* |
 |---|---:|---:|---:|
+| **Planned, non-sequential sweeps** (4 MiB chunks in a fixed order, 4 threads) | **5.5 GB/s** with a plan (1.5 without) | 1.5 GB/s | 0.19 GB/s |
 | Repeated sweeps, 4 threads (LLM-style weight streaming) | **5.57 GB/s** | 1.81 GB/s | 0.31 GB/s |
-| Synthetic LLM decode, 8.6 GB weights (real compute, identical output) | **0.48 tok/s** | 0.15 tok/s | — |
+| Synthetic LLM decode, 8.6 GB weights (real compute, identical output) | **0.66–0.73 tok/s** with a plan (0.62 without) | 0.14 tok/s | — |
+| Mixture-of-experts decode, 8 experts, 2 active (identical output) | 1.4–1.8 tok/s, **half the I/O** with a plan | 0.8 tok/s | — |
 | Random 4 KiB reads, 4 threads | 33.6k ops/s | 13.4k ops/s | **47.7k ops/s** |
 | Zipf (hot-set) reads, 4 threads | 99.8k ops/s | 38.1k ops/s | **151k ops/s** |
 | Zipf writes, 4 threads (and bytes written to NAND) | 74.6k ops/s (2.2 GB) | 93.1k ops/s (4.6 GB) | **175k ops/s (0.8 GB)** |
 
-\* swap was measured in an earlier session on the same machine; see the report.
+\* swap was measured in an earlier session for the random and Zipf rows; see the report.
 
-Summary: ddram is 3.1–3.3× faster than mmap on streaming and LLM-style
-workloads and about 2.5× faster on random reads, and it writes half as much
-to NAND. Kernel swap is still faster on fine-grained random and hot-set
-workloads, and mmap on hot-set writes.
+Summary: with a declared access plan ddram pages optimally: 3.7× faster
+than its own v0.1 heuristics and than the kernel on predictable
+non-sequential access, and it reads each block once per use. Without a
+plan it is 3.1–3.3× faster than mmap on streaming and LLM-style workloads
+and about 2.5× faster on random reads, and it writes half as much to NAND.
+Kernel swap is still faster on fine-grained random and hot-set workloads,
+and mmap on hot-set writes.
 Closing those gaps is on the [roadmap](docs/roadmap.md) (Linux `userfaultfd` engine).
 
 ## Platform support

@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use ddram::{Config, Policy, Region};
+use ddram::{Config, Plan, Policy, Region};
 
 use crate::{parse_size, Args};
 
@@ -110,13 +110,13 @@ impl Hist {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Disk {
-    read: u64,
-    written: u64,
+pub(crate) struct Disk {
+    pub read: u64,
+    pub written: u64,
 }
 
 #[cfg(target_os = "linux")]
-fn disk_for(dir: &Path) -> Option<String> {
+pub(crate) fn disk_for(dir: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
     let dev = std::fs::metadata(dir).ok()?.dev();
     let (maj, min) = (libc::major(dev), libc::minor(dev));
@@ -129,11 +129,11 @@ fn disk_for(dir: &Path) -> Option<String> {
     Some(name)
 }
 #[cfg(not(target_os = "linux"))]
-fn disk_for(_dir: &Path) -> Option<String> {
+pub(crate) fn disk_for(_dir: &Path) -> Option<String> {
     None
 }
 
-fn disk_stats(dev: &Option<String>) -> Disk {
+pub(crate) fn disk_stats(dev: &Option<String>) -> Disk {
     let Some(dev) = dev else {
         return Disk::default();
     };
@@ -431,6 +431,52 @@ fn random_ops(
     })
 }
 
+/// A fixed pseudo-random permutation of `n` chunks (the same for every
+/// engine): the order of a plannable but non-sequential workload, such as
+/// assets streamed along a level path or experts chosen by a router.
+fn chunk_order(n: usize) -> Vec<usize> {
+    let mut v: Vec<usize> = (0..n).collect();
+    let mut x = 0x7A5B_1C3D_9E8F_2460u64;
+    for i in (1..n).rev() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        v.swap(i, x as usize % (i + 1));
+    }
+    v
+}
+
+/// Verify the chunks in `order`, each read by one thread per quarter.
+fn sweep_chunks(p: *const u64, chunk_words: usize, order: &[usize], threads: usize) -> u64 {
+    let pa = p as usize;
+    let mut bad = 0;
+    for &c in order {
+        let base = c * chunk_words;
+        let per = chunk_words.div_ceil(threads);
+        bad += std::thread::scope(|s| {
+            let hs: Vec<_> = (0..threads)
+                .map(|t| {
+                    s.spawn(move || {
+                        let p = pa as *const u64;
+                        let end = base + ((t + 1) * per).min(chunk_words);
+                        let mut bad = 0u64;
+                        let mut i = base + t * per;
+                        while i < end {
+                            if unsafe { p.add(i).read_volatile() } != pattern(i) {
+                                bad += 1;
+                            }
+                            i += 8;
+                        }
+                        bad
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).sum::<u64>()
+        });
+    }
+    bad
+}
+
 fn gbps(bytes: u64, d: Duration) -> f64 {
     bytes as f64 / d.as_secs_f64() / 1e9
 }
@@ -449,6 +495,8 @@ pub fn run(a: &Args) {
     let depth: usize = a.get_or("prefetch", "16").parse().unwrap();
     let io_threads: usize = a.get_or("io-threads", "4").parse().unwrap();
     let slack = parse_size(a.get_or("slack", "128M"));
+    let chunk = parse_size(a.get_or("chunk", "4M")) as usize;
+    let use_plan = a.get("plan").is_some();
     let policy = match a.get_or("policy", "auto") {
         "clock" => Policy::Clock,
         "cyclic" => Policy::Cyclic,
@@ -482,9 +530,28 @@ pub fn run(a: &Args) {
     };
     let p = engine.ptr() as *mut u64;
     let words = engine.len() / 8;
+    let order = chunk_order(engine.len() / chunk);
+    if use_plan {
+        let Engine::Ddram(r) = &engine else {
+            panic!("--plan needs --engine ddram");
+        };
+        let mut plan = Plan::cyclic();
+        match workload.as_str() {
+            "chunks" => {
+                for &c in &order {
+                    plan.push((c * chunk) as u64, chunk as u64);
+                }
+            }
+            "cyclic" | "seq" => {
+                plan.push(0, engine.len() as u64);
+            }
+            w => panic!("--plan is not meaningful for workload {w}"),
+        }
+        r.set_plan(&plan).expect("plan");
+    }
 
     println!(
-        "# engine={engine_kind} workload={workload} size={} budget={} block={} threads={threads} dev={}",
+        "# engine={engine_kind} workload={workload} plan={use_plan} size={} budget={} block={} threads={threads} dev={}",
         size,
         budget,
         block,
@@ -534,6 +601,24 @@ pub fn run(a: &Args) {
             let el = t.elapsed();
             summary = format!("throughput_gbps={:.3}", gbps((size * passes) as u64, el));
         }
+        "chunks" => {
+            let chunk_words = chunk / 8;
+            for pass in 0..passes {
+                let tp = Instant::now();
+                let ds = disk_stats(&dev);
+                bad += sweep_chunks(p, chunk_words, &order, threads.max(1));
+                let el = tp.elapsed();
+                let de = disk_stats(&dev);
+                println!(
+                    "pass {pass:<6} : {:6.2} s  {:6.3} GB/s  disk_r={:.2} GB",
+                    el.as_secs_f64(),
+                    gbps(size as u64, el),
+                    (de.read - ds.read) as f64 / 1e9
+                );
+            }
+            let el = t.elapsed();
+            summary = format!("throughput_gbps={:.3}", gbps((size * passes) as u64, el));
+        }
         "random" | "zipf" | "zipf-write" => {
             let (h, b) = random_ops(
                 p,
@@ -569,14 +654,14 @@ pub fn run(a: &Args) {
     if let Engine::Ddram(r) = &engine {
         let s = r.stats();
         println!(
-            "ddram       : hard={} soft={} wfault={} prefetch={} evict={} writeback={} direct_reclaim={} cyclic={} direct_io={}",
+            "ddram       : hard={} soft={} wfault={} prefetch={} evict={} writeback={} direct_reclaim={} cyclic={} plan_hits={} plan_misses={} direct_io={}",
             s.hard_faults, s.soft_faults, s.write_faults, s.prefetch_loads, s.evictions, s.writebacks, s.direct_reclaims, s.cyclic,
-            r.direct_io()
+            s.plan_hits, s.plan_misses, r.direct_io()
         );
     }
     let peak = cg.as_ref().and_then(|c| c.peak()).unwrap_or(0);
     println!(
-        "RESULT engine={engine_kind} workload={workload} secs={:.3} disk_read_gb={:.3} disk_write_gb={:.3} peak_mem_mb={} errors={bad} {summary}",
+        "RESULT engine={engine_kind} workload={workload} plan={use_plan} secs={:.3} disk_read_gb={:.3} disk_write_gb={:.3} peak_mem_mb={} errors={bad} {summary}",
         el.as_secs_f64(),
         (d1.read - d0.read) as f64 / 1e9,
         (d1.written - d0.written) as f64 / 1e9,
